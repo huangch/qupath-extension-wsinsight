@@ -1,0 +1,125 @@
+plugins {
+    id 'java-library'
+    id 'org.openjfx.javafxplugin'
+}
+
+ext.moduleName = 'qupath.extension.wsinsight'
+// Resolve the QuPath version from either:
+//   * the standalone settings.gradle (sets `gradle.ext.qupathVersion`), or
+//   * the QuPath monorepo settings.gradle.kts (sets `gradle.ext['qupath.app.version']`).
+ext.qupathVersion = gradle.ext.has('qupathVersion')
+        ? gradle.ext.qupathVersion
+        : gradle.ext['qupath.app.version']
+
+base {
+    description = 'QuPath extension providing a GUI wrapper around the WSInsight Docker image'
+    version = '0.1.0'
+    group = 'io.github.qupath'
+}
+
+javafx {
+    version = libs.versions.javafx.get()
+    modules = ['javafx.base', 'javafx.controls', 'javafx.graphics', 'javafx.fxml']
+}
+
+compileJava.options.encoding = 'UTF-8'
+compileTestJava.options.encoding = 'UTF-8'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+    withSourcesJar()
+    withJavadocJar()
+}
+
+dependencies {
+    // QuPath is provided at runtime by the host application; compile-only here.
+    compileOnly "io.github.qupath:qupath-gui-fx:${qupathVersion}"
+    compileOnly "io.github.qupath:qupath-core:${qupathVersion}"
+    compileOnly "io.github.qupath:qupath-core-processing:${qupathVersion}"
+    compileOnly libs.qupath.fxtras
+    compileOnly libs.slf4j
+
+    testImplementation libs.junit
+    testRuntimeOnly libs.junit.platform
+    testRuntimeOnly libs.slf4j
+    testRuntimeOnly libs.gson
+}
+
+processResources {
+    from("${projectDir}/LICENSE") {
+        into 'META-INF/licenses/'
+    }
+}
+
+// Relax Javadoc strictness unless -PstrictJavadoc=true (matches QuPath's convention).
+def strictJavadoc = findProperty('strictJavadoc')
+if (!strictJavadoc) {
+    tasks.withType(Javadoc) {
+        options.addStringOption('Xdoclint:none', '-quiet')
+    }
+}
+
+jar {
+    manifest {
+        attributes(
+                'Implementation-Title': project.name,
+                'Implementation-Version': archiveVersion,
+                'Automatic-Module-Name': moduleName
+        )
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+// ---------------------------------------------------------------------------
+// syncCliSchema: refresh src/main/resources/wsinsight-cli-schema.json from the
+// canonical wsinsight CLI schema, preserving QuPath-only GUI hints.
+//
+// Steps:
+//   1. Run `python -m wsinsight describe` in the wsinsight repo to emit a
+//      fresh canonical schema (the CLI is the source of truth).
+//   2. Run scripts/sync_cli_schema.py to merge it with the bundled schema,
+//      carrying over command-level `groups` and per-param `group`/`column_break`.
+//
+// Properties (override on the command line via -P<name>=<value>):
+//   wsinsightRepo  -- path to the wsinsight Python source tree
+//                     (default: ../wsinsight)
+//   wsinsightPython -- python interpreter used to invoke wsinsight
+//                      (default: python3)
+//
+// Usage:
+//   ./gradlew syncCliSchema
+//   ./gradlew syncCliSchema -PwsinsightRepo=/path/to/wsinsight
+// ---------------------------------------------------------------------------
+tasks.register('syncCliSchema') {
+    group = 'wsinsight'
+    description = 'Refresh the bundled CLI schema from the canonical wsinsight describe output'
+    doLast {
+        def wsinsightRepo = file(findProperty('wsinsightRepo') ?: "${projectDir}/../wsinsight")
+        def pythonProp = (findProperty('wsinsightPython') ?: 'python3').toString()
+        // Split on whitespace so callers can supply a launcher prefix, e.g.
+        //   -PwsinsightPython="conda run -n wsinsight python"
+        def pythonCmd = pythonProp.trim().split(/\s+/) as List
+        if (!wsinsightRepo.exists()) {
+            throw new GradleException("wsinsight repo not found at ${wsinsightRepo}; pass -PwsinsightRepo=<path>")
+        }
+        def fresh = file("${buildDir}/tmp/wsinsight-cli-schema.fresh.json")
+        fresh.parentFile.mkdirs()
+
+        logger.lifecycle("Emitting canonical schema from ${wsinsightRepo} -> ${fresh}")
+        exec {
+            workingDir = wsinsightRepo
+            commandLine = pythonCmd + ['-m', 'wsinsight', 'describe', '--output', fresh.absolutePath]
+        }
+
+        logger.lifecycle("Merging into src/main/resources/wsinsight-cli-schema.json")
+        exec {
+            workingDir = projectDir
+            commandLine = pythonCmd + ["${projectDir}/scripts/sync_cli_schema.py".toString(), fresh.absolutePath]
+        }
+    }
+}
