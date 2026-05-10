@@ -178,6 +178,6 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
     @Override public Version getQuPathVersion() { return Version.parse("0.7.0"); }
 
     @Override public GitHubRepo getRepository() {
-        return GitHubRepo.create(getName(), "huangch", "wsinsight");
+        return GitHubRepo.create(getName(), "huangch", "qupath-extension-wsinsight");
     }
 }
