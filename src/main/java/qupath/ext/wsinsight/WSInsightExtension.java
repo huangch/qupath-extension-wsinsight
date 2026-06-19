@@ -138,6 +138,7 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
             java.util.Map.entry("ecomp",          "Edge composition\u2026"),
             java.util.Map.entry("tcomp",          "Triad composition\u2026"),
             java.util.Map.entry("cme",            "Cellular microenvironment\u2026"),
+            java.util.Map.entry("cme-profile",    "Cellular microenvironment profile\u2026"),
             java.util.Map.entry("hplot",          "H-Plot analysis\u2026"),
             java.util.Map.entry("hplot-finalize", "H-Plot finalize\u2026"),
             java.util.Map.entry("export",         "Export results\u2026"));

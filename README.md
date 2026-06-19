@@ -49,7 +49,7 @@ The `/slides` and `/results` bind mounts are derived automatically from the scop
 - **Patch**, **Infer**, **Region registration**
 - **H-plot**, **H-plot finalize**
 - **Neighborhood / Edge / Triad composition**
-- **Cellular microenvironment**
+- **Cellular microenvironment**, **Cellular microenvironment profile**
 - **Export GeoJSON / OME-CSV**
 
 Each action opens a form pre-populated with sensible defaults. At the top of the form, a **Process** radio group lets you choose the slide scope:
