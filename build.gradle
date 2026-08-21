@@ -105,7 +105,9 @@ tasks.register('syncCliSchema') {
         //   -PwsinsightPython="conda run -n wsinsight python"
         def pythonCmd = pythonProp.trim().split(/\s+/) as List
         if (!wsinsightRepo.exists()) {
-            throw new GradleException("wsinsight repo not found at ${wsinsightRepo}; pass -PwsinsightRepo=<path>")
+            // Not GradleException: IDE Groovy analysis has no Gradle API on its
+            // classpath, and Gradle reports either the same way.
+            throw new IllegalStateException("wsinsight repo not found at ${wsinsightRepo}; pass -PwsinsightRepo=<path>")
         }
         def fresh = file("${buildDir}/tmp/wsinsight-cli-schema.fresh.json")
         fresh.parentFile.mkdirs()
