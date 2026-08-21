@@ -57,11 +57,39 @@ def merge_command(name: str, canonical_cmd: dict, old_cmd: dict | None) -> dict:
     return out
 
 
+def describe_drift(old: dict, merged: dict) -> list[str]:
+    """Human-readable summary of what --check found, so the failure is actionable."""
+    lines: list[str] = []
+    old_cmds, new_cmds = old.get("commands", {}), merged["commands"]
+    for name in sorted(set(new_cmds) - set(old_cmds)):
+        lines.append(f"  command added upstream: {name}")
+    for name in sorted(set(old_cmds) - set(new_cmds)):
+        lines.append(f"  command removed upstream: {name}")
+
+    def flags(cmd):
+        return {f for p in cmd.get("params", []) for f in p.get("flags", [])}
+
+    for name in sorted(set(old_cmds) & set(new_cmds)):
+        gained = flags(new_cmds[name]) - flags(old_cmds[name])
+        lost = flags(old_cmds[name]) - flags(new_cmds[name])
+        if gained or lost:
+            lines.append(f"  {name}:")
+            if gained:
+                lines.append(f"      missing from bundled schema: {' '.join(sorted(gained))}")
+            if lost:
+                lines.append(f"      stale in bundled schema    : {' '.join(sorted(lost))}")
+    if not lines:
+        lines.append("  (no command/flag differences; help text or defaults changed)")
+    return lines
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(f"usage: {argv[0]} <canonical-schema.json>", file=sys.stderr)
+    check_only = "--check" in argv[1:]
+    positional = [a for a in argv[1:] if not a.startswith("--")]
+    if len(positional) != 1:
+        print(f"usage: {argv[0]} [--check] <canonical-schema.json>", file=sys.stderr)
         return 2
-    canonical = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
+    canonical = json.loads(Path(positional[0]).read_text(encoding="utf-8"))
     old = json.loads(BUNDLED.read_text(encoding="utf-8"))
 
     merged = {
@@ -84,10 +112,19 @@ def main(argv: list[str]) -> int:
                 print(f"warning: dropped GUI hint for {name}.{p['name']} (param removed)",
                       file=sys.stderr)
 
-    BUNDLED.write_text(
-        json.dumps(merged, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    rendered = json.dumps(merged, indent=2, sort_keys=True) + "\n"
+
+    if check_only:
+        if BUNDLED.read_text(encoding="utf-8") == rendered:
+            print("bundled CLI schema is up to date")
+            return 0
+        print("bundled CLI schema has drifted from `wsinsight describe`:", file=sys.stderr)
+        for line in describe_drift(old, merged):
+            print(line, file=sys.stderr)
+        print("\nrun `./gradlew syncCliSchema` to refresh it.", file=sys.stderr)
+        return 1
+
+    BUNDLED.write_text(rendered, encoding="utf-8")
     print(f"wrote {BUNDLED}")
     return 0
 

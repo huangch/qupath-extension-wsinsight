@@ -117,10 +117,11 @@ public class GenericCommandDialog {
 
     /** Experimental {@code run}-dialog flags hidden when the pref is off. */
     private static final java.util.Set<String> EXPERIMENTAL_FLAGS =
-            java.util.Set.of("--hplot", "--cme", "--ecomp", "--tcomp");
+            java.util.Set.of("--hplot", "--niche", "--ecomp", "--tcomp",
+                    "--agg", "--import");
     /** Experimental group keys hidden when the pref is off. */
     private static final java.util.Set<String> EXPERIMENTAL_GROUPS =
-            java.util.Set.of("hplot_tuning", "cme_tuning", "ecomp_tuning", "tcomp_tuning");
+            java.util.Set.of("hplot_tuning", "niche_tuning", "ecomp_tuning", "tcomp_tuning");
 
     /** Show the parameter form; on OK, launch the container and block until it finishes. */
     public void showAndRun() {

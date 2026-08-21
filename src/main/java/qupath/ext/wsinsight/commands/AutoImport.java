@@ -36,9 +36,9 @@ final class AutoImport {
     private static final List<String> GEOJSON_SUBDIRS = List.of(
             "export-geojson",
             "model-outputs-geojson",
-            "cme-outputs-geojson",
-            "cme-outputs-geojson/cells",
-            "cme-outputs-geojson/cmes");
+            "niche-outputs-geojson",
+            "niche-outputs-geojson/cells",
+            "niche-outputs-geojson/niches");
 
     private AutoImport() {}
 

@@ -45,11 +45,11 @@ The `/slides` and `/results` bind mounts are derived automatically from the scop
 
 `Extensions > WSInsight >` lists one entry per WSInsight CLI subcommand:
 
-- **Run** — one-shot `patch → infer → hplot → ncomp → ecomp → tcomp → cme → export` pipeline
+- **Run** — one-shot `patch → infer → hplot → ncomp → ecomp → tcomp → niche → export` pipeline
 - **Patch**, **Infer**, **Region registration**
 - **H-plot**, **H-plot finalize**
 - **Neighborhood / Edge / Triad composition**
-- **Cellular microenvironment**, **Cellular microenvironment profile**
+- **Niche discovery**, **Niche profile**, **Cell-type aggregates**, **Import spatial transcriptomics**
 - **Export GeoJSON / OME-CSV**
 
 Each action opens a form pre-populated with sensible defaults. At the top of the form, a **Process** radio group lets you choose the slide scope:

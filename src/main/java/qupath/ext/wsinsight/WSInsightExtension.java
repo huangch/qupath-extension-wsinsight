@@ -77,8 +77,9 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
         prefs.addPropertyPreference(s.experimentalProperty(), Boolean.class,
                 "Enable experimental features", "wsinsight",
                 "When enabled, WSINSIGHT_EXPERIMENTAL=1 is set inside the container, "
-                        + "unhiding experimental subcommands (hplot, hplot-finalize, cme, ecomp, tcomp) "
-                        + "and the --hplot / --cme flags on run.");
+                        + "unhiding experimental subcommands (hplot, hplot-finalize, niche, "
+                        + "niche-profile, ecomp, tcomp, agg, import) and the --hplot / --niche "
+                        + "flags on run.");
         prefs.addPropertyPreference(s.gpusDetectedProperty(), String.class,
                 "Detected GPUs", "wsinsight",
                 "Cached output of `nvidia-smi -L` run inside the container; refreshed "
@@ -109,9 +110,15 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
         t.start();
     }
 
-    /** Subcommands hidden unless the 'Enable experimental features' preference is on. */
+    /**
+     * Subcommands hidden unless the 'Enable experimental features' preference is on.
+     * Must match wsinsight.cli.cli._EXPERIMENTAL_COMMANDS: a command the CLI hides
+     * but this set omits is launched without WSINSIGHT_EXPERIMENTAL and dies as an
+     * unknown subcommand.
+     */
     private static final java.util.Set<String> EXPERIMENTAL_COMMANDS = java.util.Set.of(
-            "hplot", "hplot-finalize", "cme", "ecomp", "tcomp");
+            "hplot", "hplot-finalize", "niche", "niche-profile",
+            "ecomp", "tcomp", "agg", "import");
 
     private void addMenuItems(QuPathGUI qupath) {
         Menu menu = qupath.getMenu(MENU_NAME, true);
@@ -137,8 +144,10 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
             java.util.Map.entry("ncomp",          "Neighborhood composition\u2026"),
             java.util.Map.entry("ecomp",          "Edge composition\u2026"),
             java.util.Map.entry("tcomp",          "Triad composition\u2026"),
-            java.util.Map.entry("cme",            "Cellular microenvironment\u2026"),
-            java.util.Map.entry("cme-profile",    "Cellular microenvironment profile\u2026"),
+            java.util.Map.entry("niche",          "Niche discovery\u2026"),
+            java.util.Map.entry("niche-profile",  "Niche profile\u2026"),
+            java.util.Map.entry("agg",            "Cell-type aggregates\u2026"),
+            java.util.Map.entry("import",         "Import spatial transcriptomics\u2026"),
             java.util.Map.entry("hplot",          "H-Plot analysis\u2026"),
             java.util.Map.entry("hplot-finalize", "H-Plot finalize\u2026"),
             java.util.Map.entry("export",         "Export results\u2026"));

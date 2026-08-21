@@ -52,8 +52,8 @@ public final class WSInsightCommands {
     private static List<String> orderedNames(List<String> raw) {
         List<String> primary = List.of(
                 "run", "patch", "infer", "reg",
-                "ncomp", "ecomp", "tcomp", "cme", "cme-profile",
-                "hplot", "hplot-finalize", "export");
+                "ncomp", "ecomp", "tcomp", "niche", "niche-profile",
+                "agg", "import", "hplot", "hplot-finalize", "export");
         List<String> out = new ArrayList<>();
         for (String p : primary) if (raw.contains(p)) out.add(p);
         for (String n : raw) if (!out.contains(n)) out.add(n);

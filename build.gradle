@@ -123,3 +123,38 @@ tasks.register('syncCliSchema') {
         }
     }
 }
+
+// checkCliSchema: fail the build when the bundled schema no longer matches the
+// CLI. Skips (rather than fails) where wsinsight is not installed, so `check`
+// still works on a machine that only has the Java toolchain.
+tasks.register('checkCliSchema') {
+    group = 'verification'
+    description = 'Fail if the bundled CLI schema has drifted from wsinsight describe'
+    doLast {
+        def wsinsightRepo = file(findProperty('wsinsightRepo') ?: "${projectDir}/../wsinsight")
+        def pythonProp = (findProperty('wsinsightPython') ?: 'python3').toString()
+        def pythonCmd = pythonProp.trim().split(/\s+/) as List
+        if (!wsinsightRepo.exists()) {
+            logger.warn("checkCliSchema SKIPPED: no wsinsight repo at ${wsinsightRepo}")
+            return
+        }
+        def fresh = file("${buildDir}/tmp/wsinsight-cli-schema.check.json")
+        fresh.parentFile.mkdirs()
+        def emit = exec {
+            workingDir = wsinsightRepo
+            commandLine = pythonCmd + ['-m', 'wsinsight', 'describe', '--output', fresh.absolutePath]
+            ignoreExitValue = true
+        }
+        if (emit.exitValue != 0) {
+            logger.warn("checkCliSchema SKIPPED: `wsinsight describe` is not runnable here")
+            return
+        }
+        exec {
+            workingDir = projectDir
+            commandLine = pythonCmd + ["${projectDir}/scripts/sync_cli_schema.py".toString(),
+                                       '--check', fresh.absolutePath]
+        }
+    }
+}
+
+tasks.named('check') { dependsOn 'checkCliSchema' }
