@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -30,6 +31,10 @@ import qupath.ext.wsinsight.WSInsightSetup;
 public class DockerRunner {
 
     private static final Logger logger = LoggerFactory.getLogger(DockerRunner.class);
+
+    /** Env vars whose value is a host path and must be rewritten for the container. */
+    private static final Set<String> PATH_VALUED_ENV = Set.of(
+            "WSINSIGHT_REMOTE_CACHE_DIR", "KERAS_HOME");
 
     private final String dockerBinary;
     private final String image;
@@ -94,12 +99,22 @@ public class DockerRunner {
         for (Map.Entry<String, String> e : env.entrySet()) {
             if (e.getValue() == null || e.getValue().isEmpty()) continue;
             cmd.add("-e");
-            cmd.add(e.getKey() + "=" + e.getValue());
+            cmd.add(e.getKey() + "=" + containerEnvValue(e.getKey(), e.getValue()));
         }
         cmd.add(image);
         cmd.add("wsinsight");
         cmd.addAll(wsinsightArgs);
         return cmd;
+    }
+
+    /** Rewrite host paths in path-valued env vars; other values pass through unchanged. */
+    private String containerEnvValue(String key, String value) {
+        if (!PATH_VALUED_ENV.contains(key)) return value;
+        String mapped = new PathMapper(mounts).hostToContainer(value);
+        if (mapped != null) return mapped;
+        logger.warn("{}={} is not covered by any bind mount; passing it through unchanged. "
+                + "It will only resolve if the same path exists inside the container.", key, value);
+        return value;
     }
 
     private static String tryExec(String... argv) {
@@ -267,6 +282,9 @@ public class DockerRunner {
         public Builder arg(String a) { this.wsinsightArgs.add(a); return this; }
         public DockerRunner build() { return new DockerRunner(this); }
 
+        /** Mounts accumulated so far, so callers translate arguments against the same set. */
+        public List<PathMapper.Mount> getMounts() { return List.copyOf(mounts); }
+
         /** Pre-populate from {@link WSInsightSetup} (image, gpus, shm, env, mounts). */
         public Builder fromSetup(WSInsightSetup s) {
             dockerBinary(s.getDockerBinary());
@@ -276,11 +294,20 @@ public class DockerRunner {
             for (String entry : s.getExtraMounts().split("[,;\\n]")) {
                 String e = entry.trim();
                 if (e.isEmpty()) continue;
+                boolean ro = false;
+                if (e.endsWith(":ro")) {
+                    ro = true;
+                    e = e.substring(0, e.length() - 3);
+                } else if (e.endsWith(":rw")) {
+                    e = e.substring(0, e.length() - 3);
+                }
                 int idx = e.lastIndexOf(':');
                 if (idx <= 0) continue;
-                mount(new PathMapper.Mount(new File(e.substring(0, idx)).toPath(), e.substring(idx + 1)));
+                mount(new PathMapper.Mount(new File(e.substring(0, idx)).toPath(),
+                                           e.substring(idx + 1), ro));
             }
-            env("WSINSIGHT_ZOO_REGISTRY_PATH", s.getZooRegistry());
+            // WSINSIGHT_ZOO_REGISTRY_PATH is deliberately not set here: the image
+            // already points it at its bundled /app/zoo.
             env("S3_STORAGE_OPTIONS", s.getS3Options());
             env("WSINSIGHT_REMOTE_CACHE_DIR", s.getCacheDir());
             env("KERAS_HOME", s.getKerasHome());

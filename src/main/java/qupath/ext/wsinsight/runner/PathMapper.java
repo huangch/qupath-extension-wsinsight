@@ -17,8 +17,13 @@ public class PathMapper {
     public static final class Mount {
         public final Path hostRoot;
         public final String containerRoot; // e.g. "/slides"
+        public final boolean readOnly;
 
         public Mount(Path hostRoot, String containerRoot) {
+            this(hostRoot, containerRoot, false);
+        }
+
+        public Mount(Path hostRoot, String containerRoot, boolean readOnly) {
             this.hostRoot = hostRoot.toAbsolutePath().normalize();
             String trimmed = containerRoot.trim();
             if (trimmed.isEmpty() || !trimmed.startsWith("/"))
@@ -27,10 +32,11 @@ public class PathMapper {
             while (trimmed.length() > 1 && trimmed.endsWith("/"))
                 trimmed = trimmed.substring(0, trimmed.length() - 1);
             this.containerRoot = trimmed;
+            this.readOnly = readOnly;
         }
 
         public String dockerVolumeArg() {
-            return hostRoot.toString() + ":" + containerRoot;
+            return hostRoot.toString() + ":" + containerRoot + (readOnly ? ":ro" : "");
         }
     }
 

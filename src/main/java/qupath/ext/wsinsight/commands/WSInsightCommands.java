@@ -11,10 +11,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Factory for {@link GenericCommandDialog} instances, driven by the bundled
- * CLI schema produced by {@code wsinsight describe --json}. This means the
- * QuPath menu structure stays in lock-step with the Python CLI without any
- * Docker calls at startup.
+ * Factory for {@link GenericCommandDialog} instances, driven by the CLI schema
+ * that {@code wsinsight describe --output <path>} writes. Reading it from disk
+ * keeps menu creation instantaneous (no Docker call at startup) and leaves the
+ * CLI as the single generator of that file.
  */
 public final class WSInsightCommands {
 
@@ -24,20 +24,25 @@ public final class WSInsightCommands {
 
     private WSInsightCommands() {}
 
-    public static synchronized SchemaLoader schema() {
+    public static synchronized SchemaLoader schema() throws IOException {
         if (cachedSchema == null) {
-            try {
-                cachedSchema = SchemaLoader.fromBundled();
-            } catch (IOException e) {
-                logger.error("Failed to load bundled WSInsight CLI schema", e);
-                throw new IllegalStateException("WSInsight CLI schema not available", e);
-            }
+            String path = qupath.ext.wsinsight.WSInsightSetup.getInstance().getCliSchemaPath();
+            if (path == null || path.isBlank())
+                path = SchemaLoader.DEFAULT_PATH;
+            cachedSchema = SchemaLoader.fromFile(java.nio.file.Path.of(path));
+            logger.info("Loaded WSInsight CLI schema from {} (wsinsight {})",
+                    path, cachedSchema.wsinsightVersion());
         }
         return cachedSchema;
     }
 
+    /** Drop the cached schema so the next {@link #schema()} re-reads the file. */
+    public static synchronized void reset() {
+        cachedSchema = null;
+    }
+
     /** @return command name → factory, in stable menu order. */
-    public static Map<String, Supplier<GenericCommandDialog>> all() {
+    public static Map<String, Supplier<GenericCommandDialog>> all() throws IOException {
         Map<String, Supplier<GenericCommandDialog>> out = new LinkedHashMap<>();
         SchemaLoader s = schema();
         for (String name : orderedNames(s.commandNames())) {

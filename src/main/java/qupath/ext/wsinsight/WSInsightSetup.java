@@ -26,8 +26,11 @@ public class WSInsightSetup {
     private final StringProperty extraMountsProp =
             PathPrefs.createPersistentPreference("wsinsightExtraMounts", "");
 
-    private final StringProperty zooRegistryProp =
-            PathPrefs.createPersistentPreference("wsinsightEnvWsinferZooRegistry", "");
+    private final StringProperty cliSchemaPathProp =
+            PathPrefs.createPersistentPreference(
+                    "wsinsightCliSchemaPath",
+                    qupath.ext.wsinsight.commands.SchemaLoader.DEFAULT_PATH);
+
     private final StringProperty s3OptionsProp =
             PathPrefs.createPersistentPreference("wsinsightEnvS3Options", "");
     private final StringProperty cacheDirProp =
@@ -53,7 +56,7 @@ public class WSInsightSetup {
     public StringProperty gpusProperty() { return gpusProp; }
     public StringProperty shmSizeProperty() { return shmSizeProp; }
     public StringProperty extraMountsProperty() { return extraMountsProp; }
-    public StringProperty zooRegistryProperty() { return zooRegistryProp; }
+    public StringProperty cliSchemaPathProperty() { return cliSchemaPathProp; }
     public StringProperty s3OptionsProperty() { return s3OptionsProp; }
     public StringProperty cacheDirProperty() { return cacheDirProp; }
     public StringProperty kerasHomeProperty() { return kerasHomeProp; }
@@ -66,7 +69,7 @@ public class WSInsightSetup {
     public String getGpus() { return gpusProp.get(); }
     public String getShmSize() { return shmSizeProp.get(); }
     public String getExtraMounts() { return extraMountsProp.get(); }
-    public String getZooRegistry() { return zooRegistryProp.get(); }
+    public String getCliSchemaPath() { return cliSchemaPathProp.get(); }
     public String getS3Options() { return s3OptionsProp.get(); }
     public String getCacheDir() { return cacheDirProp.get(); }
     public String getKerasHome() { return kerasHomeProp.get(); }

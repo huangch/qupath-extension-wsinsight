@@ -57,10 +57,13 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
         prefs.addPropertyPreference(s.extraMountsProperty(), String.class,
                 "Extra mounts", "wsinsight",
                 "Additional bind mounts, separated by commas/semicolons/newlines. "
-                        + "Format: 'host/path:/container/path'.");
-        prefs.addPropertyPreference(s.zooRegistryProperty(), String.class,
-                "WSInsight zoo registry path", "wsinsight",
-                "Value passed as WSINSIGHT_ZOO_REGISTRY_PATH inside the container.");
+                        + "Format: 'host/path:/container/path', optionally suffixed "
+                        + "with ':ro' for read-only.");
+        prefs.addPropertyPreference(s.cliSchemaPathProperty(), String.class,
+                "CLI schema path", "wsinsight",
+                "Path to the schema written by `wsinsight describe --output <path>`. "
+                        + "Regenerate it after changing the CLI or the model zoo, then "
+                        + "use Extensions \u2192 wsinsight \u2192 Reload CLI schema.");
         prefs.addPropertyPreference(s.s3OptionsProperty(), String.class,
                 "S3 storage options (JSON)", "wsinsight",
                 "Value passed as S3_STORAGE_OPTIONS inside the container.");
@@ -122,8 +125,23 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
 
     private void addMenuItems(QuPathGUI qupath) {
         Menu menu = qupath.getMenu(MENU_NAME, true);
-        var commands = WSInsightCommands.all();
+        menu.getItems().clear();
         WSInsightSetup setup = WSInsightSetup.getInstance();
+
+        java.util.Map<String, java.util.function.Supplier<
+                qupath.ext.wsinsight.commands.GenericCommandDialog>> commands;
+        try {
+            commands = WSInsightCommands.all();
+        } catch (java.io.IOException e) {
+            logger.error("WSInsight CLI schema unavailable", e);
+            MenuItem problem = item("Schema not loaded — click for details",
+                    () -> qupath.fx.dialogs.Dialogs.showErrorMessage(
+                            "WSInsight CLI schema", e.getMessage()));
+            menu.getItems().add(problem);
+            menu.getItems().add(reloadSchemaItem(qupath));
+            return;
+        }
+
         for (var entry : commands.entrySet()) {
             final var factory = entry.getValue();
             MenuItem mi = item(labelFor(entry.getKey()), () -> factory.get().showAndRun());
@@ -133,6 +151,24 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
             }
             menu.getItems().add(mi);
         }
+        menu.getItems().add(new javafx.scene.control.SeparatorMenuItem());
+        menu.getItems().add(reloadSchemaItem(qupath));
+    }
+
+    /** Re-read the schema file so a regenerated one takes effect without restarting. */
+    private MenuItem reloadSchemaItem(QuPathGUI qupath) {
+        return item("Reload CLI schema", () -> {
+            WSInsightCommands.reset();
+            addMenuItems(qupath);
+            try {
+                var s = WSInsightCommands.schema();
+                qupath.fx.dialogs.Dialogs.showInfoNotification("WSInsight",
+                        "Reloaded CLI schema (wsinsight " + s.wsinsightVersion() + "), "
+                        + s.models().size() + " model(s).");
+            } catch (java.io.IOException e) {
+                qupath.fx.dialogs.Dialogs.showErrorMessage("WSInsight CLI schema", e.getMessage());
+            }
+        });
     }
 
     /** Friendly menu label for each subcommand. Falls back to capitalised name. */

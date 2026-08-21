@@ -66,12 +66,11 @@ public class GenericCommandDialog {
     private final Map<String, SchemaLoader.GroupSpec> groupDefs;
     private final java.util.Set<String> autoFlagsForCommand;
     /**
-     * Zoo registry entries available for this dialog's {@code --model} picker,
-     * keyed by their display label. Populated at {@link #showAndRun()} start
-     * when {@code WSINSIGHT_ZOO_REGISTRY_PATH} is configured and readable.
-     * Empty → fall back to the schema's hard-coded {@code --model} choices.
+     * Zoo models reported by the CLI schema, keyed by dropdown label.
+     * Empty when the schema predates the models section, in which case the
+     * picker falls back to the schema's hard-coded {@code --model} choices.
      */
-    private final Map<String, ZooRegistry.Entry> zooByLabel = new LinkedHashMap<>();
+    private final Map<String, SchemaLoader.ModelSpec> modelsByLabel = new LinkedHashMap<>();
 
     public GenericCommandDialog(String title, String subcommand, List<ParamSpec> specs) {
         this(title, subcommand, specs, Map.of());
@@ -128,14 +127,14 @@ public class GenericCommandDialog {
         WSInsightSetup setupPre = WSInsightSetup.getInstance();
         qupath.lib.gui.QuPathGUI gui = qupath.lib.gui.QuPathGUI.getInstance();
 
-        // Load the zoo registry (if configured) so the --model dropdown can
-        // show human-readable labels and emit -z <local-model-dir> instead
-        // of -m <name> on submit. An empty map preserves the legacy behaviour
-        // (hard-coded choices from the schema, emitted as -m <name>).
-        zooByLabel.clear();
-        for (ZooRegistry.Entry e : ZooRegistry.load(setupPre.getZooRegistry())) {
-            // Guard against duplicate labels; first wins.
-            zooByLabel.putIfAbsent(e.displayLabel, e);
+        // Models come from the CLI schema, so the list reflects the environment
+        // that will actually run inference rather than the host's directory tree.
+        modelsByLabel.clear();
+        try {
+            for (SchemaLoader.ModelSpec m : WSInsightCommands.schema().models())
+                modelsByLabel.putIfAbsent(m.label(), m);
+        } catch (java.io.IOException e) {
+            logger.warn("Could not read models from CLI schema: {}", e.getMessage());
         }
 
         // Previously-saved user input for this subcommand (per-flag values).
@@ -474,8 +473,10 @@ public class GenericCommandDialog {
         rb.mount(new qupath.ext.wsinsight.runner.PathMapper.Mount(
                 resultsDir.toPath(), "/results"));
         rb.arg(subcommand);
-        qupath.ext.wsinsight.runner.PathMapper pm = buildPathMapper(
-                setup, slidesMountRoot, resultsDir);
+        // Translate against the runner's own mounts, so -v flags and rewritten
+        // arguments can never disagree.
+        qupath.ext.wsinsight.runner.PathMapper pm =
+                new qupath.ext.wsinsight.runner.PathMapper(rb.getMounts());
 
         List<ParamSpec> missing = new ArrayList<>();
         for (ParamSpec spec : specs) {
@@ -505,21 +506,10 @@ public class GenericCommandDialog {
                     rb.arg(resolved);
                     break;
                 default:
-                    // Registry-backed --model dropdown: the user picked a
-                    // display label, so emit -z <container-path-to-model-dir>
-                    // instead of -m <name>. Requires the registry's parent
-                    // directory to be mounted via 'Extra mounts'.
-                    if ("--model".equals(spec.flag) && zooByLabel.containsKey(val)) {
-                        ZooRegistry.Entry entry = zooByLabel.get(val);
-                        String mapped = pm.hostToContainer(entry.hostDir.toString());
-                        if (mapped == null) {
-                            throw new IllegalStateException(
-                                    "Zoo model directory '" + entry.hostDir
-                                    + "' is not covered by any configured Docker bind mount. "
-                                    + "Add the zoo registry parent directory under 'Extra mounts' in "
-                                    + "Edit → Preferences → WSInsight.");
-                        }
-                        rb.arg("-z").arg(mapped);
+                    // Schema-backed --model dropdown: translate the display label
+                    // back to the registry name the CLI expects.
+                    if ("--model".equals(spec.flag) && modelsByLabel.containsKey(val)) {
+                        rb.arg(spec.flag).arg(modelsByLabel.get(val).name);
                         break;
                     }
                     if (spec.flag != null) rb.arg(spec.flag);
@@ -838,8 +828,8 @@ public class GenericCommandDialog {
                 // --model dropdown shows labels resolved from each model's
                 // config.json (or registry description/key fallback) — see
                 // ZooRegistry. Submit translates the label to -z <dir>.
-                if ("--model".equals(spec.flag) && !zooByLabel.isEmpty()) {
-                    box.getItems().addAll(zooByLabel.keySet());
+                if ("--model".equals(spec.flag) && !modelsByLabel.isEmpty()) {
+                    box.getItems().addAll(modelsByLabel.keySet());
                     box.setValue(box.getItems().get(0));
                 } else {
                     box.getItems().addAll(spec.choices);
@@ -910,24 +900,6 @@ public class GenericCommandDialog {
         if (n instanceof HBox box && !box.getChildren().isEmpty() && box.getChildren().get(0) instanceof TextField tf)
             return tf.getText();
         return "";
-    }
-
-    private static qupath.ext.wsinsight.runner.PathMapper buildPathMapper(
-            WSInsightSetup setup, File effectiveWsiDir, File effectiveResultsDir) {
-        List<qupath.ext.wsinsight.runner.PathMapper.Mount> mounts = new ArrayList<>();
-        if (effectiveWsiDir != null)
-            mounts.add(new qupath.ext.wsinsight.runner.PathMapper.Mount(effectiveWsiDir.toPath(), "/slides"));
-        if (effectiveResultsDir != null)
-            mounts.add(new qupath.ext.wsinsight.runner.PathMapper.Mount(effectiveResultsDir.toPath(), "/results"));
-        for (String entry : setup.getExtraMounts().split("[,;\\n]")) {
-            String e = entry.trim();
-            if (e.isEmpty()) continue;
-            int idx = e.lastIndexOf(':');
-            if (idx <= 0) continue;
-            mounts.add(new qupath.ext.wsinsight.runner.PathMapper.Mount(
-                    new File(e.substring(0, idx)).toPath(), e.substring(idx + 1)));
-        }
-        return new qupath.ext.wsinsight.runner.PathMapper(mounts);
     }
 
     /**

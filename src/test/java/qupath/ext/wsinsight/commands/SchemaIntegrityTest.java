@@ -1,33 +1,112 @@
 package qupath.ext.wsinsight.commands;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * Sanity checks on the bundled wsinsight-cli-schema.json.
+ * The schema is user-supplied now, so failures must stay actionable rather than
+ * surfacing as an empty menu.
  */
 public class SchemaIntegrityTest {
 
-    @Test
-    void schemaLoaderAcceptsBundled() throws IOException {
-        SchemaLoader loader = SchemaLoader.fromBundled();
-        assertNotNull(loader);
-        assertTrue(!loader.commandNames().isEmpty(),
-                "Bundled schema must expose at least one command");
+    private static final String MINIMAL = """
+            {
+              "schema_version": 1,
+              "wsinsight_version": "0.9.1",
+              "commands": {
+                "infer": {
+                  "name": "infer",
+                  "help": "run inference",
+                  "params": [
+                    {"name": "model", "kind": "string", "required": false,
+                     "default": null, "help": "", "multiple": false,
+                     "is_flag": false, "param_type": "option",
+                     "flags": ["--model", "-m"]}
+                  ]
+                }
+              },
+              "models": [
+                {"name": "breast-tumor-resnet34.tcga-brca",
+                 "description": "Breast tumor", "hf_repo_id": "kaczmarj/x",
+                 "hf_revision": "main"},
+                {"name": "no-description", "description": "",
+                 "hf_repo_id": "kaczmarj/y", "hf_revision": "main"}
+              ]
+            }
+            """;
+
+    private static Path write(Path dir, String name, String content) throws IOException {
+        Path p = dir.resolve(name);
+        Files.writeString(p, content);
+        return p;
     }
 
     @Test
-    void allGroupReferencesResolve() throws IOException {
-        SchemaLoader loader = SchemaLoader.fromBundled();
+    void loadsCommandsAndVersion(@TempDir Path dir) throws IOException {
+        SchemaLoader loader = SchemaLoader.fromFile(write(dir, "s.json", MINIMAL));
+        assertNotNull(loader);
+        assertTrue(loader.commandNames().contains("infer"));
+        assertEquals("0.9.1", loader.wsinsightVersion());
+    }
+
+    @Test
+    void parsesModelsAndLabels(@TempDir Path dir) throws IOException {
+        List<SchemaLoader.ModelSpec> models =
+                SchemaLoader.fromFile(write(dir, "s.json", MINIMAL)).models();
+        assertEquals(2, models.size());
+        assertEquals("breast-tumor-resnet34.tcga-brca — Breast tumor", models.get(0).label());
+        // No description: the label must still be usable, not an empty entry.
+        assertEquals("no-description", models.get(1).label());
+    }
+
+    @Test
+    void missingFileExplainsHowToGenerateIt(@TempDir Path dir) {
+        Path missing = dir.resolve("absent.json");
+        IOException e = assertThrows(SchemaLoader.SchemaUnavailableException.class,
+                () -> SchemaLoader.fromFile(missing));
+        assertTrue(e.getMessage().contains("wsinsight describe --output"),
+                "Message must tell the user how to produce the file: " + e.getMessage());
+    }
+
+    @Test
+    void malformedJsonIsReportedNotSwallowed(@TempDir Path dir) throws IOException {
+        Path bad = write(dir, "bad.json", "{not json");
+        assertThrows(SchemaLoader.SchemaUnavailableException.class,
+                () -> SchemaLoader.fromFile(bad));
+    }
+
+    @Test
+    void schemaWithoutCommandsIsRejected(@TempDir Path dir) throws IOException {
+        Path bad = write(dir, "empty.json", "{\"schema_version\": 1}");
+        assertThrows(SchemaLoader.SchemaUnavailableException.class,
+                () -> SchemaLoader.fromFile(bad));
+    }
+
+    @Test
+    void olderSchemaWithoutModelsStillLoads(@TempDir Path dir) throws IOException {
+        String noModels = MINIMAL.replaceAll("(?s),\\s*\"models\".*?\\]", "");
+        SchemaLoader loader = SchemaLoader.fromFile(write(dir, "old.json", noModels));
+        assertTrue(loader.commandNames().contains("infer"));
+        assertTrue(loader.models().isEmpty(), "absent models must degrade, not throw");
+    }
+
+    @Test
+    void allGroupReferencesResolve(@TempDir Path dir) throws IOException {
+        SchemaLoader loader = SchemaLoader.fromFile(write(dir, "s.json", MINIMAL));
         for (String cmd : loader.commandNames()) {
             Map<String, SchemaLoader.GroupSpec> groups = loader.groupsFor(cmd);
             List<ParamSpec> params = loader.specsFor(cmd);
@@ -43,8 +122,8 @@ public class SchemaIntegrityTest {
     }
 
     @Test
-    void allVisibleWhenFlagsExist() throws IOException {
-        SchemaLoader loader = SchemaLoader.fromBundled();
+    void allVisibleWhenFlagsExist(@TempDir Path dir) throws IOException {
+        SchemaLoader loader = SchemaLoader.fromFile(write(dir, "s.json", MINIMAL));
         for (String cmd : loader.commandNames()) {
             List<ParamSpec> params = loader.specsFor(cmd);
             Set<String> flags = new HashSet<>();
