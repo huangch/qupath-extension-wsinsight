@@ -17,6 +17,8 @@ import org.junit.jupiter.api.Test;
 class DockerRunnerOutputTest {
 
     /** Records callbacks as {@code "line:..."} / {@code "update:..."}. */
+    private static final String ESC = "\u001B";
+
     private static final class Recorder implements ProgressListener {
         final List<String> events = new ArrayList<>();
 
@@ -75,11 +77,42 @@ class DockerRunnerOutputTest {
 
     @Test
     void escapeSequencesReachNeitherTheLogNorTheListener() throws IOException {
-        String esc = "\u001B";
         List<String> logged = new ArrayList<>();
-        List<String> events = pump(esc + "[32mok" + esc + "[0m\n" + esc + "[31m 50%\r", logged);
+        List<String> events = pump(ESC + "[32mok" + ESC + "[0m\n" + ESC + "[31m 50%\r", logged);
 
         assertEquals(List.of("ok"), logged);
         assertEquals(List.of("line:ok", "update: 50%"), events);
+    }
+
+    @Test
+    void operatingSystemCommandsAreDiscarded() throws IOException {
+        assertEquals(List.of("line:after"), pump(ESC + "]0;window title\u0007after\n"));
+    }
+
+    @Test
+    void nestedTqdmBarsRedrawOneLine() throws IOException {
+        // Exactly what tqdm writes for an inner bar: cursor up, newline, CR.
+        String raw = "\rOuter:   0%\n"
+                + "\rInner:   0%" + ESC + "[A\n"
+                + "\rInner:  50%" + ESC + "[A\n"
+                + "\rInner: 100%" + ESC + "[A\n";
+
+        List<String> logged = new ArrayList<>();
+        List<String> events = pump(raw, logged);
+
+        // The outer bar is a real line; the inner bar redraws in place.
+        assertEquals(
+                List.of("line:Outer:   0%", "update:Inner:   0%",
+                        "update:Inner:  50%", "update:Inner: 100%"),
+                events);
+        // Only completed lines reach the log file, not every repaint.
+        assertEquals(List.of("Outer:   0%"), logged);
+    }
+
+    @Test
+    void cursorUpWithoutNewlineStillRedrawsInPlace() throws IOException {
+        assertEquals(
+                List.of("update:Outer: 100%"),
+                pump(ESC + "[A\rOuter: 100%\n"));
     }
 }

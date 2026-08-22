@@ -233,32 +233,82 @@ public class DockerRunner {
     }
 
     /**
-     * Stream process output, treating a lone carriage return as an in-place
-     * redraw rather than a line break.
+     * Stream process output, reproducing enough terminal behaviour for a tqdm
+     * progress bar to redraw in place.
      * <p>
-     * {@code BufferedReader.readLine()} ends a line on {@code \r} as well as
-     * {@code \n}, which turns every tqdm progress tick into its own line.
+     * A lone carriage return rewrites the current line. Nested tqdm bars also
+     * emit {@code ESC[A} (cursor up) immediately before a newline; that pair
+     * leaves the cursor where it started, so it is consumed rather than
+     * emulated. Every other escape sequence is discarded, since this output is
+     * rendered as plain text.
      */
     static void pumpOutput(InputStream in, ProgressListener listener,
-                                   Consumer<String> log) throws IOException {
+                           Consumer<String> log) throws IOException {
         StringBuilder buf = new StringBuilder();
+        StringBuilder csi = new StringBuilder();
+        Escape escape = Escape.NONE;
         boolean sawCR = false;
+        int pendingCursorUp = 0;
+
         try (Reader reader = new BufferedReader(
                 new InputStreamReader(in, StandardCharsets.UTF_8))) {
             int c;
             while ((c = reader.read()) != -1) {
-                if (sawCR) {
-                    sawCR = false;
-                    if (c == '\n') {          // CRLF is a single line break
-                        emitLine(buf, listener, log);
+                switch (escape) {
+                    case CSI -> {
+                        csi.append((char) c);
+                        if (c >= '@' && c <= '~') {          // final byte
+                            if (c == 'A')
+                                pendingCursorUp++;
+                            escape = Escape.NONE;
+                        }
                         continue;
                     }
-                    emitUpdate(buf, listener); // lone CR redraws the line
+                    case OSC -> {
+                        if (c == 0x07)                        // BEL terminates
+                            escape = Escape.NONE;
+                        else if (c == 0x1B)
+                            escape = Escape.OSC_ESC;
+                        continue;
+                    }
+                    case OSC_ESC -> {
+                        escape = (c == '\\') ? Escape.NONE : Escape.OSC;
+                        continue;
+                    }
+                    case ESC -> {
+                        if (c == '[') {
+                            csi.setLength(0);
+                            escape = Escape.CSI;
+                        } else {
+                            escape = (c == ']') ? Escape.OSC : Escape.NONE;
+                        }
+                        continue;
+                    }
+                    case NONE -> { }
                 }
+
+                if (c == 0x1B) {
+                    escape = Escape.ESC;
+                    continue;
+                }
+
+                if (sawCR) {
+                    sawCR = false;
+                    if (c == '\n') {                          // CRLF: one line
+                        emitLine(buf, listener, log, pendingCursorUp);
+                        pendingCursorUp = Math.max(0, pendingCursorUp - 1);
+                        continue;
+                    }
+                    emitUpdate(buf, listener);                // lone CR redraws
+                }
+
                 if (c == '\r') {
                     sawCR = true;
                 } else if (c == '\n') {
-                    emitLine(buf, listener, log);
+                    // After a cursor-up the newline only returns the cursor to
+                    // the line it came from, so the text redraws in place.
+                    emitLine(buf, listener, log, pendingCursorUp);
+                    pendingCursorUp = Math.max(0, pendingCursorUp - 1);
                 } else {
                     buf.append((char) c);
                 }
@@ -266,14 +316,20 @@ public class DockerRunner {
             if (sawCR)
                 emitUpdate(buf, listener);
             if (buf.length() > 0)
-                emitLine(buf, listener, log);
+                emitLine(buf, listener, log, 0);
         }
     }
 
+    /** Escape-sequence parser state. */
+    private enum Escape { NONE, ESC, CSI, OSC, OSC_ESC }
+
     private static void emitLine(StringBuilder buf, ProgressListener listener,
-                                 Consumer<String> log) {
-        // Strip here so the log file and the log window both get plain text.
-        String line = AnsiText.strip(buf.toString());
+                                 Consumer<String> log, int pendingCursorUp) {
+        if (pendingCursorUp > 0) {
+            emitUpdate(buf, listener);
+            return;
+        }
+        String line = buf.toString();
         buf.setLength(0);
         log.accept(line);
         if (listener != null)
@@ -281,7 +337,7 @@ public class DockerRunner {
     }
 
     private static void emitUpdate(StringBuilder buf, ProgressListener listener) {
-        String line = AnsiText.strip(buf.toString());
+        String line = buf.toString();
         buf.setLength(0);
         if (!line.isEmpty() && listener != null)
             listener.onLogUpdate(line);
