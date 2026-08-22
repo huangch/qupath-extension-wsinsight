@@ -35,6 +35,7 @@ final class AutoImport {
 
     private static final List<String> GEOJSON_SUBDIRS = List.of(
             "export-geojson",
+            "export-niche-regions-geojson",
             "model-outputs-geojson",
             "niche-outputs-geojson",
             "niche-outputs-geojson/cells",
@@ -64,7 +65,13 @@ final class AutoImport {
         String stem = stemOf(qupath.getDisplayedImageName(castImageData(imageData)));
         if (stem == null || stem.isBlank()) return;
         List<PathObject> objects = loadObjectsForStem(resultsDir, stem);
-        if (objects.isEmpty()) return;
+        if (objects.isEmpty()) {
+            notify(anyGeoJsonDirExists(resultsDir)
+                    ? "No GeoJSON output matched '" + stem + "'."
+                    : "The run wrote no GeoJSON. Re-run with --export-geojson enabled "
+                          + "so results can be imported.");
+            return;
+        }
         Platform.runLater(() -> {
             imageData.getHierarchy().addObjects(objects);
             imageData.getHierarchy().resolveHierarchy();
@@ -122,9 +129,13 @@ final class AutoImport {
         final int nObj = totalObjects;
         final int nImg = totalImages;
         final List<String> skippedFinal = skipped;
+        final boolean noGeoJsonAtAll = !anyGeoJsonDirExists(resultsDir);
         Platform.runLater(() -> {
             if (nObj == 0) {
-                notify("No GeoJSON outputs matched the selected slides.");
+                notify(noGeoJsonAtAll
+                        ? "The run wrote no GeoJSON. Re-run with --export-geojson enabled "
+                          + "so results can be imported."
+                        : "No GeoJSON outputs matched the selected slides.");
             } else {
                 String msg = "Imported " + nObj + " object(s) into " + nImg + " image(s).";
                 if (!skippedFinal.isEmpty()) msg += " Skipped: " + String.join(", ", skippedFinal) + ".";
@@ -158,6 +169,14 @@ final class AutoImport {
             }
         }
         return all;
+    }
+
+    /** True when at least one known GeoJSON output directory is present. */
+    private static boolean anyGeoJsonDirExists(File resultsDir) {
+        for (String sub : GEOJSON_SUBDIRS) {
+            if (new File(resultsDir, sub).isDirectory()) return true;
+        }
+        return false;
     }
 
     private static List<File> findGeoJsonForStem(File resultsDir, String stem) {

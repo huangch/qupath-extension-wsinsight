@@ -45,6 +45,9 @@ public class WSInsightProgressDialog {
         logArea.setWrapText(true);
         logArea.setPrefColumnCount(100);
         logArea.setPrefRowCount(24);
+        // "Monospaced" is a JavaFX logical font, so this resolves on every
+        // platform; setting only the family keeps the inherited font size.
+        logArea.setStyle("-fx-font-family: 'Monospaced';");
 
         this.progressBar = new ProgressBar();
         progressBar.setPrefWidth(Double.MAX_VALUE);
