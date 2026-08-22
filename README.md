@@ -86,13 +86,12 @@ If no image is open and no project is loaded, the dialog shows a "No image avail
 
 ## Developer notes
 
-### Refreshing the bundled CLI schema
+### Refreshing the CLI schema
 
-The dialog forms are driven entirely by `src/main/resources/wsinsight-cli-schema.json`. This file is the canonical `wsinsight describe` output **augmented** with QuPath-only GUI hints:
-
-| Where it comes from | What it carries |
-| --- | --- |
-| `wsinsight describe` (canonical) | Commands, params, defaults, `kind`, `help`, `required`, choices, and the zoo `models` list |
+The dialog forms are driven entirely by the schema at
+`~/.wsinsight/cli-schema.json`, which is the canonical `wsinsight describe`
+output: commands, params, defaults, `kind`, `help`, `required`, choices, and
+the zoo `models` list.
 
 The schema is **not** bundled in the jar and there is no Gradle task to sync or verify it: a second copy could only ever drift from the first. Regenerate it with the CLI:
 
