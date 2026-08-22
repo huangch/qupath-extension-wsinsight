@@ -7,6 +7,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Host paths in the launch command only resolve inside the container when a
@@ -45,21 +48,45 @@ public class DockerRunnerMountTest {
     @Test
     void unmountedPathEnvPassesThroughUnchanged() {
         DockerRunner.Builder b = DockerRunner.builder();
-        b.env("KERAS_HOME", "/home/somebody/.keras");
+        b.env("WSINSIGHT_REMOTE_CACHE_DIR", "/home/somebody/cache");
         List<String> cmd = b.build().buildCommand();
 
-        assertEquals("/home/somebody/.keras", envValue(cmd, "KERAS_HOME"));
+        assertEquals("/home/somebody/cache", envValue(cmd, "WSINSIGHT_REMOTE_CACHE_DIR"));
     }
 
     @Test
-    void zooRegistryEnvIsNeverSet(@TempDir Path dir) {
-        // The image points WSINSIGHT_ZOO_REGISTRY_PATH at its bundled /app/zoo;
-        // overriding it from QuPath breaks model resolution in the container.
+    void imageOwnedEnvVarsAreNeverOverridden(@TempDir Path dir) {
+        // The image points these at /app/zoo and /app/keras; overriding either
+        // with a host path breaks model lookup and StarDist2D.from_pretrained.
         DockerRunner.Builder b = DockerRunner.builder();
         b.mount(new PathMapper.Mount(dir, "/slides"));
         List<String> cmd = b.build().buildCommand();
 
         assertEquals(null, envValue(cmd, "WSINSIGHT_ZOO_REGISTRY_PATH"));
+        assertEquals(null, envValue(cmd, "KERAS_HOME"));
+    }
+
+    @Test
+    void identityIsPassedAsHostUidNotUserFlag() {
+        // `--user` makes docker-entrypoint.sh exec through without exporting
+        // HOME, so Path.home() becomes "/" for uids with no passwd entry.
+        List<String> cmd = DockerRunner.builder().build().buildCommand();
+
+        assertFalse(cmd.contains("--user"), "must not bypass the entrypoint's remapping");
+        String os = System.getProperty("os.name", "").toLowerCase();
+        if (!os.contains("win")) {
+            assertNotNull(envValue(cmd, "HOST_UID"), "HOST_UID must be passed");
+            assertNotNull(envValue(cmd, "HOST_GID"), "HOST_GID must be passed");
+        }
+    }
+
+    @Test
+    void hfCacheVolumeAndInitMatchTheReferenceScript() {
+        List<String> cmd = DockerRunner.builder().build().buildCommand();
+
+        assertTrue(cmd.contains("--init"), "dataloader workers must be reaped");
+        assertTrue(cmd.contains("wsinsight-hf-cache:/app/hf-cache"),
+                "weights would be re-downloaded on every run without this");
     }
 
     @Test

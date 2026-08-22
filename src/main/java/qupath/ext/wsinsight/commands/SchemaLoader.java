@@ -92,29 +92,27 @@ public final class SchemaLoader {
             JsonObject m = e.getAsJsonObject();
             String name = str(m, "name");
             if (name == null || name.isBlank()) continue;
-            out.add(new ModelSpec(name, str(m, "description")));
+            out.add(new ModelSpec(name, str(m, "description"), str(m, "path")));
         }
         return out;
-    }
-
-    private static String str(JsonObject o, String key) {
-        JsonElement e = o.get(key);
-        return e != null && !e.isJsonNull() ? e.getAsString() : null;
     }
 
     /** One zoo model: the {@code --model} value plus a human-readable label. */
     public static final class ModelSpec {
         public final String name;
         public final String description;
+        /** Absolute model folder as seen by wsinsight, or null when only on HuggingFace. */
+        public final String path;
 
-        ModelSpec(String name, String description) {
+        ModelSpec(String name, String description, String path) {
             this.name = name;
             this.description = description == null ? "" : description;
+            this.path = path == null || path.isBlank() ? null : path;
         }
 
-        /** Dropdown label; falls back to the bare name when no description exists. */
+        /** Dropdown text. The description is long, so it belongs in a tooltip. */
         public String label() {
-            return description.isBlank() ? name : name + " \u2014 " + description;
+            return name;
         }
     }
 
@@ -205,6 +203,7 @@ public final class SchemaLoader {
                 .defaultValue(defaultValue)
                 .required(required)
                 .group(str(p, "group"))
+                .nargs(intOr(p, "nargs", 1))
                 .columnBreak(bool(p, "column_break", false));
         if (choices != null) b.choices(choices);
         if (translatePath) b.translatePath(true);
@@ -262,6 +261,16 @@ public final class SchemaLoader {
                 return Boolean.toString(d.getAsBoolean());
             return d.getAsString();
         }
+        // Tuple defaults (click type=(int, int)) arrive as a JSON array; the CLI
+        // wants them space-separated, not as "[2048,2048]".
+        if (d.isJsonArray()) {
+            StringBuilder sb = new StringBuilder();
+            for (JsonElement e : d.getAsJsonArray()) {
+                if (sb.length() > 0) sb.append(' ');
+                sb.append(e.isJsonPrimitive() ? e.getAsString() : e.toString());
+            }
+            return sb.toString();
+        }
         return d.toString();
     }
 
@@ -273,6 +282,15 @@ public final class SchemaLoader {
     private static boolean bool(JsonObject o, String key, boolean def) {
         JsonElement el = o.get(key);
         return el == null || el.isJsonNull() ? def : el.getAsBoolean();
+    }
+
+    private static int intOr(JsonObject o, String key, int def) {
+        JsonElement el = o.get(key);
+        try {
+            return el == null || el.isJsonNull() ? def : Math.max(1, el.getAsInt());
+        } catch (NumberFormatException e) {
+            return def;
+        }
     }
 
     /** @return the underlying JsonObject for advanced inspection. */

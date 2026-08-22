@@ -52,9 +52,9 @@ The jar lands in `build/libs/qupath-extension-wsinsight-0.1.0.jar`. Drop it into
 | Shared memory size | `docker --shm-size` (default `32g`) |
 | Extra mounts | Additional `host:container` bind-mount pairs, separated by commas, semicolons, or newlines. Append `:ro` for read-only |
 | CLI schema path | File written by `wsinsight describe --output` (default `~/.wsinsight/cli-schema.json`) |
+| Use local model files | On: pass `--zoo-model-dir` from the path in the schema. Off: pass `--model` and download from HuggingFace |
 | S3 storage options (JSON) | Sets `S3_STORAGE_OPTIONS` |
-| Remote cache directory | Sets `WSINSIGHT_REMOTE_CACHE_DIR` |
-| `KERAS_HOME` | Sets the Keras cache directory |
+| Remote cache directory | Host cache for slides streamed from S3/GDC; must be covered by an extra mount |
 | Auto-import results | Load `*.geojson` and `*.ome.csv` back into the project on success |
 
 The `/slides` and `/results` bind mounts are derived automatically from the scope chosen in each command dialog (see **Run** below). Results land under `<project>/wsinsight-runs/<subcommand>-<timestamp>/` when a project is open, so they travel with the project and can be re-inspected later; in single-image mode (no project) a fresh scratch directory under the system temp folder is used instead.

@@ -32,6 +32,8 @@ import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.util.Callback;
 
+import org.slf4j.LoggerFactory;
+
 import qupath.fx.dialogs.Dialogs;
 import qupath.lib.projects.Project;
 import qupath.lib.projects.ProjectImageEntry;
@@ -100,6 +102,7 @@ public class GenericCommandDialog {
                 auto.add(s.flag);
                 continue;
             }
+            if (s.flag != null && HIDDEN_MODEL_FLAGS.contains(s.flag)) continue;
             if (!experimental) {
                 // Hide experimental top-level flags and every param living
                 // inside an experimental group (otherwise they would fall
@@ -110,9 +113,24 @@ public class GenericCommandDialog {
             }
             visible.add(s);
         }
+        // The model chooser now supplies --zoo-model-dir, so lead with it.
+        for (int i = 0; i < visible.size(); i++) {
+            if ("--model".equals(visible.get(i).flag)) {
+                visible.add(0, visible.remove(i));
+                break;
+            }
+        }
         this.specs = visible;
         this.autoFlagsForCommand = auto;
     }
+
+    /**
+     * Ways of locating a model that the dropdown already determines. Showing them
+     * as separate fields invites values that contradict the chosen model, and the
+     * CLI rejects them as mutually exclusive anyway.
+     */
+    private static final java.util.Set<String> HIDDEN_MODEL_FLAGS =
+            java.util.Set.of("--zoo-model-dir", "--config", "--model-path");
 
     /** Experimental {@code run}-dialog flags hidden when the pref is off. */
     private static final java.util.Set<String> EXPERIMENTAL_FLAGS =
@@ -121,6 +139,32 @@ public class GenericCommandDialog {
     /** Experimental group keys hidden when the pref is off. */
     private static final java.util.Set<String> EXPERIMENTAL_GROUPS =
             java.util.Set.of("hplot_tuning", "niche_tuning", "ecomp_tuning", "tcomp_tuning");
+
+    /** Minimum members before a flag prefix earns its own collapsible section. */
+    private static final int AUTO_SECTION_MIN = 3;
+
+    /**
+     * Group params by the first segment of their flag ({@code --niche-k} → "niche").
+     * A bare master switch ({@code --niche}) has no segment and stays in the main
+     * grid, as do required params — a required field inside a collapsed section
+     * would disable OK with no visible cause.
+     */
+    private static LinkedHashMap<String, List<ParamSpec>> deriveSections(List<ParamSpec> specs) {
+        LinkedHashMap<String, List<ParamSpec>> byPrefix = new LinkedHashMap<>();
+        for (ParamSpec s : specs) {
+            if (s.required || s.flag == null || !s.flag.startsWith("--")) continue;
+            String rest = s.flag.substring(2);
+            int dash = rest.indexOf('-');
+            if (dash <= 0) continue;
+            byPrefix.computeIfAbsent(rest.substring(0, dash), k -> new ArrayList<>()).add(s);
+        }
+        byPrefix.values().removeIf(v -> v.size() < AUTO_SECTION_MIN);
+        return byPrefix;
+    }
+
+    private static String sectionTitle(String prefix) {
+        return prefix.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + prefix.substring(1);
+    }
 
     /** Show the parameter form; on OK, launch the container and block until it finishes. */
     public void showAndRun() {
@@ -134,7 +178,8 @@ public class GenericCommandDialog {
             for (SchemaLoader.ModelSpec m : WSInsightCommands.schema().models())
                 modelsByLabel.putIfAbsent(m.label(), m);
         } catch (java.io.IOException e) {
-            logger.warn("Could not read models from CLI schema: {}", e.getMessage());
+            LoggerFactory.getLogger(GenericCommandDialog.class)
+                    .warn("Could not read models from CLI schema: {}", e.getMessage());
         }
 
         // Previously-saved user input for this subcommand (per-flag values).
@@ -214,6 +259,14 @@ public class GenericCommandDialog {
             }
         }
 
+        // `describe` carries no GUI hints, so fall back to the CLI's own flag
+        // prefixes (--niche-*, --hplot-*, ...) to keep the main form short.
+        LinkedHashMap<String, List<ParamSpec>> autoSections = new LinkedHashMap<>();
+        if (groupDefs.isEmpty()) {
+            autoSections.putAll(deriveSections(mainSpecs));
+            for (List<ParamSpec> v : autoSections.values()) mainSpecs.removeAll(v);
+        }
+
         // Seed dialog-group sub-dialog state from the last-used snapshot so
         // re-opening a sub-dialog shows the user's previous entries.
         for (Map.Entry<String, List<ParamSpec>> ge : byGroup.entrySet()) {
@@ -268,7 +321,26 @@ public class GenericCommandDialog {
             SchemaLoader.GroupSpec anchor =
                     spec.flag != null ? anchorByFlag.get(spec.flag) : null;
             Node cell;
-            if (anchor != null && input instanceof CheckBox cb) {
+            if ("--model".equals(spec.flag) && input instanceof ChoiceBox<?> cbx
+                    && !modelsByLabel.isEmpty()) {
+                // Short text, full path in the tooltip: a path here would widen
+                // the whole dialog.
+                Label origin = new Label();
+                Tooltip originTip = new Tooltip();
+                Runnable refresh = () -> {
+                    SchemaLoader.ModelSpec m = modelsByLabel.get(String.valueOf(cbx.getValue()));
+                    boolean local = m != null && m.path != null;
+                    origin.setText(local ? "local" : "download");
+                    originTip.setText(local ? m.path
+                            : "Not present locally; --model will fetch it from HuggingFace.");
+                };
+                origin.setTooltip(originTip);
+                cbx.valueProperty().addListener((o, ov, nv) -> refresh.run());
+                refresh.run();
+                HBox box = new HBox(8, cbx, origin);
+                box.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+                cell = box;
+            } else if (anchor != null && input instanceof CheckBox cb) {
                 Button btn = makeGroupButton(anchor, byGroup.get(anchor.key), groupValues);
                 btn.disableProperty().bind(cb.selectedProperty().not());
                 HBox box = new HBox(8, cb, btn);
@@ -333,6 +405,29 @@ public class GenericCommandDialog {
         body.setPadding(new Insets(8));
         body.setAlignment(javafx.geometry.Pos.TOP_LEFT);
 
+        // Auto-derived sections, collapsed so the dialog opens at core size.
+        VBox sections = new VBox(4);
+        sections.setPadding(new Insets(0, 8, 8, 8));
+        for (Map.Entry<String, List<ParamSpec>> se : autoSections.entrySet()) {
+            VBox content = new VBox(6);
+            for (ParamSpec spec : se.getValue()) {
+                Label lbl = new Label(spec.label + ":");
+                lbl.setMinWidth(180);
+                lbl.setPrefWidth(180);
+                if (!spec.help.isBlank()) lbl.setTooltip(new Tooltip(spec.help));
+                Node input = buildInput(spec);
+                HBox row = new HBox(8, lbl, input);
+                HBox.setHgrow(input, javafx.scene.layout.Priority.ALWAYS);
+                row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+                content.getChildren().add(row);
+                inputs.put(keyFor(spec), input);
+            }
+            javafx.scene.control.TitledPane tp = new javafx.scene.control.TitledPane(
+                    sectionTitle(se.getKey()) + "  (" + se.getValue().size() + ")", content);
+            tp.setExpanded(false);
+            sections.getChildren().add(tp);
+        }
+
         // Seed all main-grid and inline-group widgets with the user's
         // previously saved values (if any). Done after every widget is
         // registered in `inputs` so that both main and inline specs benefit.
@@ -380,7 +475,25 @@ public class GenericCommandDialog {
         // and an unsatisfied one starts disabled.
         revalidate.run();
 
-        pane.setContent(new javafx.scene.layout.VBox(scopeBox, body));
+        // Commands like `run` expose ~100 params, which overflows the screen as
+        // a plain form; cap the body and scroll instead.
+        VBox scrollBody = new VBox(10, body, sections);
+        javafx.scene.control.ScrollPane scroller = new javafx.scene.control.ScrollPane(scrollBody);
+        scroller.setFitToWidth(true);
+        scroller.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scroller.setVbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        // prefHeight caps the size the dialog opens at; leaving maxHeight
+        // unbounded is what lets it follow the window when resized.
+        double screenH = javafx.stage.Screen.getPrimary().getVisualBounds().getHeight();
+        scroller.setPrefHeight(Math.min(scrollBody.prefHeight(-1) + 20, screenH * 0.7));
+        scroller.setMaxHeight(Double.MAX_VALUE);
+        scroller.setMaxWidth(Double.MAX_VALUE);
+
+        VBox content = new VBox(scopeBox, scroller);
+        VBox.setVgrow(scroller, javafx.scene.layout.Priority.ALWAYS);
+        content.setFillWidth(true);
+        pane.setContent(content);
+        dialog.setResizable(true);
 
         dialog.setResultConverter(bt -> {
             if (bt != ButtonType.OK) return null;
@@ -495,25 +608,43 @@ public class GenericCommandDialog {
                     String resolved = val;
                     if (spec.translatePath) {
                         String mapped = pm.hostToContainer(val);
-                        if (mapped == null) {
+                        if (mapped != null) {
+                            resolved = mapped;
+                        } else if (!new File(val).exists()) {
+                            // Not on this host, so it is already a container path
+                            // (e.g. /app/zoo/... baked into the image).
+                            resolved = val;
+                        } else {
                             throw new IllegalStateException(
                                     "Path '" + val + "' is not covered by any configured Docker bind mount. "
                                     + "Add it under 'Extra mounts' in Edit → Preferences → WSInsight.");
                         }
-                        resolved = mapped;
                     }
                     if (spec.flag != null) rb.arg(spec.flag);
                     rb.arg(resolved);
                     break;
                 default:
-                    // Schema-backed --model dropdown: translate the display label
-                    // back to the registry name the CLI expects.
+                    // Model source is a preference, not a guess: falling back to
+                    // --model silently costs five TLS retries before failing on a
+                    // network that was never going to allow the download.
                     if ("--model".equals(spec.flag) && modelsByLabel.containsKey(val)) {
-                        rb.arg(spec.flag).arg(modelsByLabel.get(val).name);
+                        SchemaLoader.ModelSpec m = modelsByLabel.get(val);
+                        if (!setup.isUseLocalModels()) {
+                            rb.arg(spec.flag).arg(m.name);
+                        } else if (m.path != null) {
+                            rb.arg("--zoo-model-dir").arg(m.path);
+                        } else {
+                            throw new IllegalStateException(
+                                    "'Use local model files' is on, but wsinsight reported no local "
+                                    + "folder for '" + m.name + "'.\n\n"
+                                    + "Regenerate the schema where the weights are visible:\n"
+                                    + "    wsinsight describe --output <schema path>\n\n"
+                                    + "or turn the preference off to download from HuggingFace.");
+                        }
                         break;
                     }
                     if (spec.flag != null) rb.arg(spec.flag);
-                    rb.arg(val);
+                    for (String tok : tokensFor(spec, val)) rb.arg(tok);
                     break;
             }
         }
@@ -815,6 +946,29 @@ public class GenericCommandDialog {
         return s.flag != null ? s.flag : s.label;
     }
 
+    /**
+     * Split a value into the argv tokens the CLI expects.
+     * <p>
+     * click tuple types ({@code type=(int, int)}) need one token per element.
+     * A bracketed value is also split even when {@code nargs} says 1, because
+     * schemas generated before nargs was recorded — and values saved from them
+     * — render such defaults as {@code "[2048,2048]"}. Comma-separated values
+     * that are genuinely one argument (e.g. {@code --niche-leiden-res
+     * 0.5,1.0,2.0}) are never bracketed, so they pass through intact.
+     */
+    static List<String> tokensFor(ParamSpec spec, String val) {
+        String v = val.trim();
+        boolean bracketed = v.length() > 1 && v.startsWith("[") && v.endsWith("]");
+        if (spec.nargs <= 1 && !bracketed) return List.of(v);
+        String inner = bracketed ? v.substring(1, v.length() - 1) : v;
+        List<String> out = new ArrayList<>();
+        for (String part : inner.split("[\\s,]+")) {
+            String t = part.replaceAll("^[\"']|[\"']$", "").trim();
+            if (!t.isEmpty()) out.add(t);
+        }
+        return out.isEmpty() ? List.of(v) : out;
+    }
+
     private Node buildInput(ParamSpec spec) {
         switch (spec.kind) {
             case BOOL_FLAG: {
@@ -824,13 +978,19 @@ public class GenericCommandDialog {
             }
             case CHOICE: {
                 ChoiceBox<String> box = new ChoiceBox<>();
-                // When the user configured WSINSIGHT_ZOO_REGISTRY_PATH, the
-                // --model dropdown shows labels resolved from each model's
-                // config.json (or registry description/key fallback) — see
-                // ZooRegistry. Submit translates the label to -z <dir>.
                 if ("--model".equals(spec.flag) && !modelsByLabel.isEmpty()) {
                     box.getItems().addAll(modelsByLabel.keySet());
                     box.setValue(box.getItems().get(0));
+                    Tooltip modelTip = new Tooltip();
+                    box.valueProperty().addListener((o, ov, nv) -> {
+                        SchemaLoader.ModelSpec m = modelsByLabel.get(nv);
+                        String d = m == null || m.description.isBlank() ? nv : m.description;
+                        modelTip.setText(d);
+                    });
+                    SchemaLoader.ModelSpec first = modelsByLabel.get(box.getValue());
+                    modelTip.setText(first == null || first.description.isBlank()
+                            ? box.getValue() : first.description);
+                    box.setTooltip(modelTip);
                 } else {
                     box.getItems().addAll(spec.choices);
                     if (!spec.defaultValue.isEmpty() && spec.choices.contains(spec.defaultValue))
@@ -838,6 +998,10 @@ public class GenericCommandDialog {
                     else if (!spec.choices.isEmpty())
                         box.setValue(spec.choices.get(0));
                 }
+                // A ChoiceBox sizes to its widest item, which lets one long model
+                // name stretch the whole dialog.
+                box.setPrefWidth(280);
+                box.setMaxWidth(Double.MAX_VALUE);
                 return box;
             }
             case PATH: {

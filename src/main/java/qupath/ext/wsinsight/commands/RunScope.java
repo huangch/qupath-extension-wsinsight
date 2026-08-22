@@ -55,10 +55,14 @@ final class RunScope {
      * {@code image-list://}-compatible manifest under {@code resultsDir} and
      * return the corresponding container URI (e.g.
      * {@code image-list:///results/_wsinsight_slides.txt}). Returns {@code null}
-     * when zero or one slide is selected (caller should use {@code --wsi-dir /slides}).
+     * only when no slide resolved to a local file.
+     * <p>
+     * Written even for a single slide: {@code --wsi-dir /slides} would otherwise
+     * make wsinsight enumerate every file in the mounted parent directory,
+     * including sidecar archives and thumbnails.
      */
     String writeImageListIfNeeded(File resultsDir) throws IOException {
-        if (slideFiles.size() <= 1) return null;
+        if (slideFiles.isEmpty()) return null;
         File listFile = new File(resultsDir, "_wsinsight_slides.txt");
         Path mountRoot = slidesMountRoot.toPath().toAbsolutePath();
         try (BufferedWriter w = Files.newBufferedWriter(listFile.toPath(), StandardCharsets.UTF_8)) {
@@ -109,11 +113,14 @@ final class RunScope {
 
     private static RunScope fromProjectEntries(
             Kind kind, Collection<? extends ProjectImageEntry<?>> entries) {
-        List<File> files = new ArrayList<>();
+        // A pyramidal/multi-series file can back several project entries; the
+        // pipeline reads the whole file, so keep one entry per distinct path.
+        java.util.LinkedHashSet<File> unique = new java.util.LinkedHashSet<>();
         for (ProjectImageEntry<?> entry : entries) {
             File slide = slideFileFromEntry(entry);
-            if (slide != null) files.add(slide);
+            if (slide != null) unique.add(slide.getAbsoluteFile());
         }
+        List<File> files = new ArrayList<>(unique);
         if (files.isEmpty()) return null;
         File root = commonParent(files);
         if (root == null) return null;

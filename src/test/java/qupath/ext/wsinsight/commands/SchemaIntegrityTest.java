@@ -13,6 +13,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -42,9 +43,11 @@ public class SchemaIntegrityTest {
               "models": [
                 {"name": "breast-tumor-resnet34.tcga-brca",
                  "description": "Breast tumor", "hf_repo_id": "kaczmarj/x",
-                 "hf_revision": "main"},
+                 "hf_revision": "main",
+                 "path": "/app/zoo/kaczmarj/x/main"},
                 {"name": "no-description", "description": "",
-                 "hf_repo_id": "kaczmarj/y", "hf_revision": "main"}
+                 "hf_repo_id": "kaczmarj/y", "hf_revision": "main",
+                 "path": null}
               ]
             }
             """;
@@ -68,9 +71,21 @@ public class SchemaIntegrityTest {
         List<SchemaLoader.ModelSpec> models =
                 SchemaLoader.fromFile(write(dir, "s.json", MINIMAL)).models();
         assertEquals(2, models.size());
-        assertEquals("breast-tumor-resnet34.tcga-brca — Breast tumor", models.get(0).label());
-        // No description: the label must still be usable, not an empty entry.
+        // Label is the bare name: descriptions are long enough to widen the dialog.
+        assertEquals("breast-tumor-resnet34.tcga-brca", models.get(0).label());
+        assertEquals("Breast tumor", models.get(0).description);
         assertEquals("no-description", models.get(1).label());
+    }
+
+    @Test
+    void localModelPathIsCarriedThrough(@TempDir Path dir) throws IOException {
+        List<SchemaLoader.ModelSpec> models =
+                SchemaLoader.fromFile(write(dir, "s.json", MINIMAL)).models();
+        // Present → the dialog can pass --zoo-model-dir and skip HuggingFace.
+        assertEquals("/app/zoo/kaczmarj/x/main", models.get(0).path);
+        // Absent → must be null, not the string "null", so the caller falls
+        // back to --model rather than passing a bogus directory.
+        assertNull(models.get(1).path);
     }
 
     @Test

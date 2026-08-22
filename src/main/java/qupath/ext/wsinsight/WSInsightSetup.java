@@ -35,11 +35,11 @@ public class WSInsightSetup {
             PathPrefs.createPersistentPreference("wsinsightEnvS3Options", "");
     private final StringProperty cacheDirProp =
             PathPrefs.createPersistentPreference("wsinsightCacheDir", "");
-    private final StringProperty kerasHomeProp =
-            PathPrefs.createPersistentPreference("wsinsightKerasHome", "");
 
     private final BooleanProperty autoImportResultsProp =
             PathPrefs.createPersistentPreference("wsinsightAutoImportResults", true);
+    private final BooleanProperty useLocalModelsProp =
+            PathPrefs.createPersistentPreference("wsinsightUseLocalModels", true);
     private final BooleanProperty experimentalProp =
             PathPrefs.createPersistentPreference("wsinsightExperimental", false);
     private final StringProperty gpusDetectedProp =
@@ -59,8 +59,8 @@ public class WSInsightSetup {
     public StringProperty cliSchemaPathProperty() { return cliSchemaPathProp; }
     public StringProperty s3OptionsProperty() { return s3OptionsProp; }
     public StringProperty cacheDirProperty() { return cacheDirProp; }
-    public StringProperty kerasHomeProperty() { return kerasHomeProp; }
     public BooleanProperty autoImportResultsProperty() { return autoImportResultsProp; }
+    public BooleanProperty useLocalModelsProperty() { return useLocalModelsProp; }
     public BooleanProperty experimentalProperty() { return experimentalProp; }
     public StringProperty gpusDetectedProperty() { return gpusDetectedProp; }
 
@@ -72,8 +72,8 @@ public class WSInsightSetup {
     public String getCliSchemaPath() { return cliSchemaPathProp.get(); }
     public String getS3Options() { return s3OptionsProp.get(); }
     public String getCacheDir() { return cacheDirProp.get(); }
-    public String getKerasHome() { return kerasHomeProp.get(); }
     public boolean isAutoImportResults() { return autoImportResultsProp.get(); }
+    public boolean isUseLocalModels() { return useLocalModelsProp.get(); }
     public boolean isExperimental() { return experimentalProp.get(); }
     public String getGpusDetected() { return gpusDetectedProp.get(); }
     public void setGpusDetected(String v) { gpusDetectedProp.set(v == null ? "" : v); }

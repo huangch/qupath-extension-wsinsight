@@ -41,7 +41,8 @@ public class WSInsightProgressDialog {
 
         this.logArea = new TextArea();
         logArea.setEditable(false);
-        logArea.setWrapText(false);
+        // The launch command is one very long line; wrap rather than scroll sideways.
+        logArea.setWrapText(true);
         logArea.setPrefColumnCount(100);
         logArea.setPrefRowCount(24);
 

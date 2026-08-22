@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import qupath.ext.wsinsight.commands.WSInsightCommands;
+import qupath.fx.dialogs.Dialogs;
 import qupath.lib.common.Version;
 import qupath.lib.gui.QuPathGUI;
 import qupath.lib.gui.extensions.GitHubProject;
@@ -64,15 +65,19 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
                 "Path to the schema written by `wsinsight describe --output <path>`. "
                         + "Regenerate it after changing the CLI or the model zoo, then "
                         + "use Extensions \u2192 wsinsight \u2192 Reload CLI schema.");
+        prefs.addPropertyPreference(s.useLocalModelsProperty(), Boolean.class,
+                "Use local model files", "wsinsight",
+                "On: pass --zoo-model-dir using the path wsinsight reported for the "
+                        + "model, so nothing is downloaded. Off: pass --model, which "
+                        + "always fetches from HuggingFace and needs outbound HTTPS.");
         prefs.addPropertyPreference(s.s3OptionsProperty(), String.class,
                 "S3 storage options (JSON)", "wsinsight",
                 "Value passed as S3_STORAGE_OPTIONS inside the container.");
         prefs.addPropertyPreference(s.cacheDirProperty(), String.class,
                 "Remote cache directory", "wsinsight",
-                "Value passed as WSINSIGHT_REMOTE_CACHE_DIR inside the container.");
-        prefs.addPropertyPreference(s.kerasHomeProperty(), String.class,
-                "KERAS_HOME", "wsinsight",
-                "Override Keras config/weights directory inside the container.");
+                "Host directory used to cache slides streamed from S3/GDC. It must be "
+                        + "covered by one of the 'Extra mounts' above, otherwise the "
+                        + "container cannot see it.");
         prefs.addPropertyPreference(s.autoImportResultsProperty(), Boolean.class,
                 "Auto-import results", "wsinsight",
                 "Import GeoJSON annotations and OME-CSV measurements back into the "
@@ -135,7 +140,7 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
         } catch (java.io.IOException e) {
             logger.error("WSInsight CLI schema unavailable", e);
             MenuItem problem = item("Schema not loaded — click for details",
-                    () -> qupath.fx.dialogs.Dialogs.showErrorMessage(
+                    () -> Dialogs.showErrorMessage(
                             "WSInsight CLI schema", e.getMessage()));
             menu.getItems().add(problem);
             menu.getItems().add(reloadSchemaItem(qupath));
@@ -162,11 +167,11 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
             addMenuItems(qupath);
             try {
                 var s = WSInsightCommands.schema();
-                qupath.fx.dialogs.Dialogs.showInfoNotification("WSInsight",
+                Dialogs.showInfoNotification("WSInsight",
                         "Reloaded CLI schema (wsinsight " + s.wsinsightVersion() + "), "
                         + s.models().size() + " model(s).");
             } catch (java.io.IOException e) {
-                qupath.fx.dialogs.Dialogs.showErrorMessage("WSInsight CLI schema", e.getMessage());
+                Dialogs.showErrorMessage("WSInsight CLI schema", e.getMessage());
             }
         });
     }

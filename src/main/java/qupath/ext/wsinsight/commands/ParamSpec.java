@@ -26,6 +26,8 @@ public final class ParamSpec {
     public final String group;
     /** When true, this main-grid param starts a new column (column 2). */
     public final boolean columnBreak;
+    /** Token count the CLI expects; >1 for click tuple types like {@code type=(int, int)}. */
+    public final int nargs;
 
     private ParamSpec(Builder b) {
         this.flag = b.flag;
@@ -38,6 +40,7 @@ public final class ParamSpec {
         this.required = b.required;
         this.group = b.group;
         this.columnBreak = b.columnBreak;
+        this.nargs = Math.max(1, b.nargs);
     }
 
     /**
@@ -108,6 +111,7 @@ public final class ParamSpec {
         private boolean required;
         private String group;
         private boolean columnBreak;
+        private int nargs = 1;
 
         public Builder flag(String v) { this.flag = v; return this; }
         public Builder label(String v) { this.label = v; return this; }
@@ -119,6 +123,7 @@ public final class ParamSpec {
         public Builder required(boolean v) { this.required = v; return this; }
         public Builder group(String v) { this.group = v; return this; }
         public Builder columnBreak(boolean v) { this.columnBreak = v; return this; }
+        public Builder nargs(int v) { this.nargs = v; return this; }
         public ParamSpec build() { return new ParamSpec(this); }
     }
 }

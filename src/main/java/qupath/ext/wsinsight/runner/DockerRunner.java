@@ -34,7 +34,11 @@ public class DockerRunner {
 
     /** Env vars whose value is a host path and must be rewritten for the container. */
     private static final Set<String> PATH_VALUED_ENV = Set.of(
-            "WSINSIGHT_REMOTE_CACHE_DIR", "KERAS_HOME");
+            "WSINSIGHT_REMOTE_CACHE_DIR");
+
+    /** Named volume backing $HF_HOME, so model weights survive between runs. */
+    private static final String HF_CACHE_VOLUME = "wsinsight-hf-cache";
+    private static final String HF_CACHE_MOUNT = "/app/hf-cache";
 
     private final String dockerBinary;
     private final String image;
@@ -71,6 +75,8 @@ public class DockerRunner {
         cmd.add(dockerBinary);
         cmd.add("run");
         cmd.add("--rm");
+        // Reap dataloader workers; without it they survive `docker kill` as zombies.
+        cmd.add("--init");
         cmd.add("--cidfile");
         cmd.add(cidFile.toString());
         if (gpus != null && !gpus.isBlank() && !"none".equalsIgnoreCase(gpus.trim())) {
@@ -80,7 +86,9 @@ public class DockerRunner {
         if (shmSize != null && !shmSize.isBlank()) {
             cmd.add("--shm-size=" + shmSize.trim());
         }
-        // On Linux / macOS, running as the invoking user avoids root-owned outputs.
+        // Ask the entrypoint to remap its own user, rather than `--user`: the
+        // latter makes it exec straight through without setting HOME, and a
+        // host uid with no passwd entry then resolves Path.home() to "/".
         String os = System.getProperty("os.name", "").toLowerCase();
         if (!os.contains("win")) {
             String uid = System.getenv("UID");
@@ -88,14 +96,18 @@ public class DockerRunner {
             if (uid == null || uid.isBlank()) uid = tryExec("id", "-u");
             if (gid == null || gid.isBlank()) gid = tryExec("id", "-g");
             if (uid != null && gid != null) {
-                cmd.add("--user");
-                cmd.add(uid + ":" + gid);
+                cmd.add("-e");
+                cmd.add("HOST_UID=" + uid);
+                cmd.add("-e");
+                cmd.add("HOST_GID=" + gid);
             }
         }
         for (PathMapper.Mount m : mounts) {
             cmd.add("-v");
             cmd.add(m.dockerVolumeArg());
         }
+        cmd.add("-v");
+        cmd.add(HF_CACHE_VOLUME + ":" + HF_CACHE_MOUNT);
         for (Map.Entry<String, String> e : env.entrySet()) {
             if (e.getValue() == null || e.getValue().isEmpty()) continue;
             cmd.add("-e");
@@ -306,11 +318,11 @@ public class DockerRunner {
                 mount(new PathMapper.Mount(new File(e.substring(0, idx)).toPath(),
                                            e.substring(idx + 1), ro));
             }
-            // WSINSIGHT_ZOO_REGISTRY_PATH is deliberately not set here: the image
-            // already points it at its bundled /app/zoo.
+            // WSINSIGHT_ZOO_REGISTRY_PATH and KERAS_HOME are deliberately not set
+            // here: the image points them at its bundled /app/zoo and /app/keras,
+            // and the latter is where StarDist2D.from_pretrained finds its weights.
             env("S3_STORAGE_OPTIONS", s.getS3Options());
             env("WSINSIGHT_REMOTE_CACHE_DIR", s.getCacheDir());
-            env("KERAS_HOME", s.getKerasHome());
             if (s.isExperimental()) env("WSINSIGHT_EXPERIMENTAL", "1");
             return this;
         }
