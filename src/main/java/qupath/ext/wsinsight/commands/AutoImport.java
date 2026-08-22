@@ -72,9 +72,10 @@ final class AutoImport {
                           + "so results can be imported.");
             return;
         }
+        // No resolveHierarchy(): WSInsight emits flat cell detections, and
+        // resolving 100k+ objects blocks whichever thread runs it.
         Platform.runLater(() -> {
             imageData.getHierarchy().addObjects(objects);
-            imageData.getHierarchy().resolveHierarchy();
             notify("Imported " + objects.size() + " object(s) into current image.");
         });
     }
@@ -103,10 +104,7 @@ final class AutoImport {
             if (openSlide != null && sameFile(openSlide, slide) && qupath != null
                     && qupath.getImageData() != null) {
                 final ImageData<?> data = qupath.getImageData();
-                Platform.runLater(() -> {
-                    data.getHierarchy().addObjects(objects);
-                    data.getHierarchy().resolveHierarchy();
-                });
+                Platform.runLater(() -> data.getHierarchy().addObjects(objects));
                 totalObjects += objects.size();
                 totalImages += 1;
                 continue;
@@ -151,7 +149,6 @@ final class AutoImport {
         if (data == null) return;
         PathObjectHierarchy hierarchy = data.getHierarchy();
         hierarchy.addObjects(objects);
-        hierarchy.resolveHierarchy();
         entry.saveImageData(data);
     }
 

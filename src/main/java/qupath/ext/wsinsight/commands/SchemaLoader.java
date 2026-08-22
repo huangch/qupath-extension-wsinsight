@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
@@ -150,6 +151,14 @@ public final class SchemaLoader {
         return cmds == null ? null : cmds.getAsJsonObject(name);
     }
 
+    /**
+     * Flags whose CLI default (off) is overridden to on. GeoJSON is the only
+     * format this extension imports, so leaving it off makes a run produce
+     * nothing QuPath can display. Still a checkbox, so it can be turned off.
+     */
+    private static final Set<String> GEOJSON_EXPORT_FLAGS =
+            Set.of("--export-geojson", "--geojson");
+
     private static ParamSpec toSpec(JsonObject p) {
         String kind = str(p, "kind");
         boolean isFlag = bool(p, "is_flag", false);
@@ -158,6 +167,9 @@ public final class SchemaLoader {
         String label = deriveLabel(p, flag);
         String help = str(p, "help");
         String defaultValue = defaultAsString(p);
+        if (GEOJSON_EXPORT_FLAGS.contains(flag)) {
+            defaultValue = "true";
+        }
         boolean required = bool(p, "required", false);
 
         ParamSpec.Kind specKind;
