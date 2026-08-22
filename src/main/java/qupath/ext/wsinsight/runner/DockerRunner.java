@@ -3,7 +3,9 @@ package qupath.ext.wsinsight.runner;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -174,13 +177,7 @@ public class DockerRunner {
         List<String> cmd = List.of(dockerBinary, "pull", image);
         if (listener != null) listener.onLogLine("$ " + String.join(" ", cmd));
         Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (listener != null) listener.onLogLine(line);
-            }
-        }
+        pumpOutput(p.getInputStream(), listener, line -> {});
         return p.waitFor();
     }
 
@@ -223,15 +220,8 @@ public class DockerRunner {
         ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
         this.process = pb.start();
 
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                logger.info("wsinsight: {}", line);
-                if (listener != null)
-                    listener.onLogLine(line);
-            }
-        }
+        pumpOutput(process.getInputStream(), listener,
+                line -> logger.info("wsinsight: {}", line));
 
         int exit = process.waitFor();
         if (cancelled)
@@ -240,6 +230,61 @@ public class DockerRunner {
         if (listener != null)
             listener.onFinished(exit);
         return exit;
+    }
+
+    /**
+     * Stream process output, treating a lone carriage return as an in-place
+     * redraw rather than a line break.
+     * <p>
+     * {@code BufferedReader.readLine()} ends a line on {@code \r} as well as
+     * {@code \n}, which turns every tqdm progress tick into its own line.
+     */
+    static void pumpOutput(InputStream in, ProgressListener listener,
+                                   Consumer<String> log) throws IOException {
+        StringBuilder buf = new StringBuilder();
+        boolean sawCR = false;
+        try (Reader reader = new BufferedReader(
+                new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            int c;
+            while ((c = reader.read()) != -1) {
+                if (sawCR) {
+                    sawCR = false;
+                    if (c == '\n') {          // CRLF is a single line break
+                        emitLine(buf, listener, log);
+                        continue;
+                    }
+                    emitUpdate(buf, listener); // lone CR redraws the line
+                }
+                if (c == '\r') {
+                    sawCR = true;
+                } else if (c == '\n') {
+                    emitLine(buf, listener, log);
+                } else {
+                    buf.append((char) c);
+                }
+            }
+            if (sawCR)
+                emitUpdate(buf, listener);
+            if (buf.length() > 0)
+                emitLine(buf, listener, log);
+        }
+    }
+
+    private static void emitLine(StringBuilder buf, ProgressListener listener,
+                                 Consumer<String> log) {
+        // Strip here so the log file and the log window both get plain text.
+        String line = AnsiText.strip(buf.toString());
+        buf.setLength(0);
+        log.accept(line);
+        if (listener != null)
+            listener.onLogLine(line);
+    }
+
+    private static void emitUpdate(StringBuilder buf, ProgressListener listener) {
+        String line = AnsiText.strip(buf.toString());
+        buf.setLength(0);
+        if (!line.isEmpty() && listener != null)
+            listener.onLogUpdate(line);
     }
 
     /** Kill the running container (if any) via {@code docker kill}. */

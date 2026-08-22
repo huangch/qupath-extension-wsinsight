@@ -9,6 +9,14 @@ public interface ProgressListener {
     /** Called for each stdout/stderr line from the container. */
     void onLogLine(String line);
 
+    /**
+     * Called when a carriage return redraws the current line, as a tqdm
+     * progress bar does. Consumers that cannot redraw may append instead.
+     */
+    default void onLogUpdate(String line) {
+        onLogLine(line);
+    }
+
     /** Called when the job finishes (successfully or not). */
     void onFinished(int exitCode);
 

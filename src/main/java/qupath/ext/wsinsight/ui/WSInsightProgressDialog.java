@@ -7,7 +7,6 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
-import javafx.scene.control.TextArea;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
@@ -24,7 +23,7 @@ import qupath.ext.wsinsight.runner.ProgressListener;
 public class WSInsightProgressDialog {
 
     private final Stage stage;
-    private final TextArea logArea;
+    private final LogArea logArea;
     private final ProgressBar progressBar;
     private final Label statusLabel;
     private final Button cancelButton;
@@ -39,15 +38,9 @@ public class WSInsightProgressDialog {
         stage.setTitle(title);
         stage.initModality(Modality.APPLICATION_MODAL);
 
-        this.logArea = new TextArea();
-        logArea.setEditable(false);
-        // The launch command is one very long line; wrap rather than scroll sideways.
-        logArea.setWrapText(true);
+        this.logArea = new LogArea();
         logArea.setPrefColumnCount(100);
         logArea.setPrefRowCount(24);
-        // "Monospaced" is a JavaFX logical font, so this resolves on every
-        // platform; setting only the family keeps the inherited font size.
-        logArea.setStyle("-fx-font-family: 'Monospaced';");
 
         this.progressBar = new ProgressBar();
         progressBar.setPrefWidth(Double.MAX_VALUE);
@@ -96,13 +89,16 @@ public class WSInsightProgressDialog {
             protected Integer call() throws Exception {
                 return runner.run(new ProgressListener() {
                     @Override public void onLogLine(String line) {
-                        Platform.runLater(() -> logArea.appendText(line + "\n"));
+                        Platform.runLater(() -> logArea.appendLine(line));
+                    }
+                    @Override public void onLogUpdate(String line) {
+                        Platform.runLater(() -> logArea.updateLine(line));
                     }
                     @Override public void onFinished(int exitCode) {
                         // Handled after waitFor below.
                     }
                     @Override public void onError(Throwable t) {
-                        Platform.runLater(() -> logArea.appendText("ERROR: " + t + "\n"));
+                        Platform.runLater(() -> logArea.appendLine("ERROR: " + t));
                     }
                 });
             }
@@ -119,7 +115,7 @@ public class WSInsightProgressDialog {
         });
         task.setOnFailed(ev -> {
             Throwable t = task.getException();
-            logArea.appendText("ERROR: " + (t == null ? "unknown" : t.toString()) + "\n");
+            logArea.appendLine("ERROR: " + (t == null ? "unknown" : t.toString()));
             progressBar.setProgress(0.0);
             statusLabel.setText("Failed.");
             cancelButton.setDisable(true);

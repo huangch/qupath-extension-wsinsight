@@ -6,7 +6,6 @@ import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
-import javafx.scene.control.TextArea;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
@@ -41,8 +40,7 @@ public final class DockerPull {
         stage.setTitle("WSInsight — pulling " + image);
         stage.initModality(Modality.APPLICATION_MODAL);
 
-        TextArea log = new TextArea();
-        log.setEditable(false);
+        LogArea log = new LogArea();
         log.setPrefColumnCount(100);
         log.setPrefRowCount(16);
 
@@ -65,11 +63,14 @@ public final class DockerPull {
             protected Integer call() throws Exception {
                 return DockerRunner.pullImage(dockerBinary, image, new ProgressListener() {
                     @Override public void onLogLine(String line) {
-                        Platform.runLater(() -> log.appendText(line + "\n"));
+                        Platform.runLater(() -> log.appendLine(line));
+                    }
+                    @Override public void onLogUpdate(String line) {
+                        Platform.runLater(() -> log.updateLine(line));
                     }
                     @Override public void onFinished(int code) { /* handled below */ }
                     @Override public void onError(Throwable t) {
-                        Platform.runLater(() -> log.appendText("ERROR: " + t + "\n"));
+                        Platform.runLater(() -> log.appendLine("ERROR: " + t));
                     }
                 });
             }
