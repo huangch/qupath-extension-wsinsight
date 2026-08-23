@@ -1,6 +1,8 @@
 package qupath.ext.wsinsight.commands;
 
 import java.io.File;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import javafx.geometry.Insets;
 import javafx.scene.control.Button;
@@ -61,9 +63,28 @@ public class ImportResultsDialog {
         DialogPane pane = dialog.getDialogPane();
         pane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
 
+        // --- Previously-used results directory ----------------------------
+        // 2026-08-23 pre-populate: the standalone Import dialog used to start
+        // with a blank path even though the run dialog remembers the last
+        // --results-dir via LastUsedValues / ProjectLastUsedValues. Mirror
+        // the run-dialog preference layering (project-scoped wins when a
+        // project is open, otherwise fall back to user-wide). The subcommand
+        // key is "import" so per-run writes don't clobber the import dialog's
+        // memory.
+        Map<String, String> lastUsed;
+        if (ProjectLastUsedValues.hasProject(project)) {
+            lastUsed = ProjectLastUsedValues.load(project, "import");
+        } else {
+            lastUsed = LastUsedValues.load("import");
+        }
+        String initialResultsDir = lastUsed.get("--results-dir");
+
         // --- Results directory selector -----------------------------------
         TextField dirField = new TextField();
         dirField.setPrefColumnCount(40);
+        if (initialResultsDir != null && new File(initialResultsDir).isDirectory()) {
+            dirField.setText(initialResultsDir);
+        }
         Button browse = new Button("Browse…");
         browse.setOnAction(ev -> {
             DirectoryChooser dc = new DirectoryChooser();
@@ -152,6 +173,17 @@ public class ImportResultsDialog {
                 Dialogs.showErrorMessage("wsinsight", "No image selected.");
                 return;
             }
+            // 2026-08-23: remember the chosen results dir under the same
+            // "import" preference key we read at dialog open time, so the
+            // next time the user opens this dialog it pre-fills with the
+            // last value. Both layers (project, user-wide) are written,
+            // matching the run dialog.
+            Map<String, String> toSave = new LinkedHashMap<>();
+            toSave.put("--results-dir", resultsDir.getAbsolutePath());
+            if (ProjectLastUsedValues.hasProject(project)) {
+                ProjectLastUsedValues.save(project, "import", toSave);
+            }
+            LastUsedValues.save("import", toSave);
             AutoImport.importResults(resultsDir, scope, project);
         });
     }
