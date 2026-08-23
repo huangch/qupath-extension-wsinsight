@@ -31,7 +31,7 @@ final class RunScope {
 
     private static final Logger logger = LoggerFactory.getLogger(RunScope.class);
 
-    enum Kind { CURRENT_IMAGE, PROJECT_ALL, PROJECT_SELECTION }
+    enum Kind { CURRENT_IMAGE, PROJECT_SELECTION }
 
     private final Kind kind;
     private final List<File> slideFiles;
@@ -94,15 +94,6 @@ final class RunScope {
         File parent = slide.getParentFile();
         if (parent == null) return null;
         return new RunScope(Kind.CURRENT_IMAGE, List.of(slide), parent);
-    }
-
-    /**
-     * Scope covering every image in the project whose URI resolves to a local
-     * file. Returns {@code null} if no entries are usable.
-     */
-    static RunScope fromProjectAll(Project<?> project) {
-        if (project == null) return null;
-        return fromProjectEntries(Kind.PROJECT_ALL, project.getImageList());
     }
 
     /** Scope covering a user-selected subset of project entries. */

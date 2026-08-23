@@ -120,6 +120,7 @@ public class GenericCommandDialog {
                 break;
             }
         }
+        applyMainOrder(visible);
         this.specs = visible;
         this.autoFlagsForCommand = auto;
     }
@@ -141,7 +142,7 @@ public class GenericCommandDialog {
             java.util.Set.of("hplot_tuning", "niche_tuning", "ecomp_tuning", "tcomp_tuning");
 
     /** Minimum members before a flag prefix earns its own collapsible section. */
-    private static final int AUTO_SECTION_MIN = 3;
+    private static final int AUTO_SECTION_MIN = 2;
 
     /**
      * Group params by the first segment of their flag ({@code --niche-k} → "niche").
@@ -149,7 +150,7 @@ public class GenericCommandDialog {
      * grid, as do required params — a required field inside a collapsed section
      * would disable OK with no visible cause.
      */
-    private static LinkedHashMap<String, List<ParamSpec>> deriveSections(List<ParamSpec> specs) {
+    static LinkedHashMap<String, List<ParamSpec>> deriveSections(List<ParamSpec> specs) {
         LinkedHashMap<String, List<ParamSpec>> byPrefix = new LinkedHashMap<>();
         for (ParamSpec s : specs) {
             if (s.required || s.flag == null || !s.flag.startsWith("--")) continue;
@@ -162,8 +163,71 @@ public class GenericCommandDialog {
         return byPrefix;
     }
 
-    private static String sectionTitle(String prefix) {
-        return prefix.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + prefix.substring(1);
+    /**
+     * Main-grid placement, as flag &rarr; the flag it should follow. The CLI
+     * declaration order groups these poorly: the two worker counts end up in
+     * opposite columns, and the two directory pickers are split apart.
+     * Rules are applied in order, so one may build on another.
+     */
+    private static final List<Map.Entry<String, String>> MAIN_ORDER_AFTER = List.of(
+            Map.entry("--stitch-workers", "--num-workers"),
+            Map.entry("--region-inference-dir", "--overwrite"),
+            Map.entry("--histoqc-dir", "--region-inference-dir"));
+
+    /** Reorder the main grid in place; rules naming an absent flag are skipped. */
+    static void applyMainOrder(List<ParamSpec> specs) {
+        for (Map.Entry<String, String> rule : MAIN_ORDER_AFTER) {
+            int from = indexOfFlag(specs, rule.getKey());
+            int after = indexOfFlag(specs, rule.getValue());
+            if (from < 0 || after < 0)
+                continue;
+            ParamSpec moved = specs.remove(from);
+            specs.add(indexOfFlag(specs, rule.getValue()) + 1, moved);
+        }
+    }
+
+    private static int indexOfFlag(List<ParamSpec> specs, String flag) {
+        for (int i = 0; i < specs.size(); i++) {
+            if (flag.equals(specs.get(i).flag))
+                return i;
+        }
+        return -1;
+    }
+
+    /**
+     * Remove each section's master switch ({@code --ncomp} for the
+     * {@code ncomp} section) from the main grid, so it can be shown on the
+     * section itself rather than adrift among unrelated fields.
+     */
+    static LinkedHashMap<String, ParamSpec> takeSectionSwitches(
+            List<ParamSpec> mainSpecs, java.util.Set<String> prefixes) {
+        LinkedHashMap<String, ParamSpec> switches = new LinkedHashMap<>();
+        for (String prefix : prefixes) {
+            String flag = "--" + prefix;
+            for (java.util.Iterator<ParamSpec> it = mainSpecs.iterator(); it.hasNext(); ) {
+                ParamSpec s = it.next();
+                if (flag.equals(s.flag) && s.kind == ParamSpec.Kind.BOOL_FLAG) {
+                    switches.put(prefix, s);
+                    it.remove();
+                    break;
+                }
+            }
+        }
+        return switches;
+    }
+
+    /**
+     * Opening height of the scrollable body. Every section starts collapsed, so
+     * the natural height leaves the dialog cramped; open at twice that, still
+     * short enough to leave the desktop visible.
+     */
+    static double preferredBodyHeight(double naturalHeight, double screenHeight) {
+        return Math.min(naturalHeight * 2, screenHeight * 0.7);
+    }
+
+    /** Section titles match the flags they contain, so they stay lower case. */
+    static String sectionTitle(String prefix) {
+        return prefix;
     }
 
     /** Show the parameter form; on OK, launch the container and block until it finishes. */
@@ -216,15 +280,13 @@ public class GenericCommandDialog {
         pane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
 
         // Scope selector row lives in its own VBox above the two-column body.
+        // No "all images" option: the picker's own All button covers it.
         ToggleGroup scopeGroup = new ToggleGroup();
         RadioButton rbCurrent = new RadioButton("Current image");
-        RadioButton rbAll = new RadioButton("All project images");
         RadioButton rbSelection = new RadioButton("Selected project images…");
         rbCurrent.setToggleGroup(scopeGroup);
-        rbAll.setToggleGroup(scopeGroup);
         rbSelection.setToggleGroup(scopeGroup);
         rbCurrent.setDisable(currentScope == null);
-        rbAll.setDisable(!haveProject);
         rbSelection.setDisable(!haveProject);
         final List<ProjectImageEntry<?>> pickedEntries = new ArrayList<>();
         rbSelection.setOnAction(ev -> {
@@ -232,7 +294,6 @@ public class GenericCommandDialog {
             List<ProjectImageEntry<?>> picked = pickProjectEntries(project, pickedEntries);
             if (picked == null) {
                 if (!rbCurrent.isDisabled()) rbCurrent.setSelected(true);
-                else if (!rbAll.isDisabled()) rbAll.setSelected(true);
                 return;
             }
             pickedEntries.clear();
@@ -240,11 +301,11 @@ public class GenericCommandDialog {
             rbSelection.setText("Selected project images… (" + picked.size() + ")");
         });
         if (!rbCurrent.isDisabled()) rbCurrent.setSelected(true);
-        else if (!rbAll.isDisabled()) rbAll.setSelected(true);
+        else if (!rbSelection.isDisabled()) rbSelection.setSelected(true);
 
         VBox scopeBox = new VBox(4,
                 new Label("Process:"),
-                new HBox(12, rbCurrent, rbAll, rbSelection));
+                new HBox(12, rbCurrent, rbSelection));
         scopeBox.setPadding(new Insets(8, 8, 8, 8));
 
         Map<String, Node> inputs = new LinkedHashMap<>();
@@ -262,9 +323,11 @@ public class GenericCommandDialog {
         // `describe` carries no GUI hints, so fall back to the CLI's own flag
         // prefixes (--niche-*, --hplot-*, ...) to keep the main form short.
         LinkedHashMap<String, List<ParamSpec>> autoSections = new LinkedHashMap<>();
+        Map<String, ParamSpec> sectionSwitches = new LinkedHashMap<>();
         if (groupDefs.isEmpty()) {
             autoSections.putAll(deriveSections(mainSpecs));
             for (List<ParamSpec> v : autoSections.values()) mainSpecs.removeAll(v);
+            sectionSwitches.putAll(takeSectionSwitches(mainSpecs, autoSections.keySet()));
         }
 
         // Seed dialog-group sub-dialog state from the last-used snapshot so
@@ -424,6 +487,17 @@ public class GenericCommandDialog {
             }
             javafx.scene.control.TitledPane tp = new javafx.scene.control.TitledPane(
                     sectionTitle(se.getKey()) + "  (" + se.getValue().size() + ")", content);
+            ParamSpec master = sectionSwitches.get(se.getKey());
+            if (master != null) {
+                Node toggle = buildInput(master);
+                inputs.put(keyFor(master), toggle);
+                // Sits in the header so it stays visible while the section is
+                // collapsed; the click must not also fold the section.
+                toggle.setOnMouseClicked(javafx.event.Event::consume);
+                if (!master.help.isBlank())
+                    javafx.scene.control.Tooltip.install(toggle, new Tooltip(master.help));
+                tp.setGraphic(toggle);
+            }
             tp.setExpanded(false);
             sections.getChildren().add(tp);
         }
@@ -485,7 +559,7 @@ public class GenericCommandDialog {
         // prefHeight caps the size the dialog opens at; leaving maxHeight
         // unbounded is what lets it follow the window when resized.
         double screenH = javafx.stage.Screen.getPrimary().getVisualBounds().getHeight();
-        scroller.setPrefHeight(Math.min(scrollBody.prefHeight(-1) + 20, screenH * 0.7));
+        scroller.setPrefHeight(preferredBodyHeight(scrollBody.prefHeight(-1) + 20, screenH));
         scroller.setMaxHeight(Double.MAX_VALUE);
         scroller.setMaxWidth(Double.MAX_VALUE);
 
@@ -547,8 +621,6 @@ public class GenericCommandDialog {
                     return;
                 }
                 scope = RunScope.fromProjectSelection(pickedEntries);
-            } else if (chosen == rbAll) {
-                scope = RunScope.fromProjectAll(project);
             } else {
                 scope = currentScope;
             }
