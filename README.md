@@ -81,7 +81,6 @@ Run the tests with `./gradlew test`.
 | Use local model files | both | On: pass `--zoo-model-dir` from the path in the schema. Off: pass `--model` and download from HuggingFace |
 | S3 storage options (JSON) | both | Sets `S3_STORAGE_OPTIONS` |
 | Remote cache directory | both | Host cache for slides streamed from S3/GDC. In Docker mode it must sit under the slides or results directory |
-| Auto-import results | both | Load `*.geojson` and `*.ome.csv` back into the project on success |
 | Enable experimental features | both | Show the experimental subcommands and flags (see **Menu** below) |
 
 Results land under `<project>/wsinsight-runs/<subcommand>-<timestamp>/` when a
@@ -122,12 +121,19 @@ executable cannot be run.
 | H-Plot analysis… | `hplot` | yes |
 | H-Plot finalize… | `hplot-finalize` | yes |
 | Export results… | `export` | |
+| _— separator —_ | | |
+| Import results… | _(no subcommand; uses `AutoImport`)_ | |
+| Reload CLI schema | _(no subcommand; re-reads `cli-schema.json`)_ | |
 
 Entries marked experimental are hidden unless **Enable experimental features** is
 on, matching the subcommands the CLI itself hides behind `WSINSIGHT_EXPERIMENTAL`.
 With the preference off the menu is just Run, Patch, Inference, Region
 registration, Neighborhood composition and Export. Toggling it shows and hides
 the entries live; no restart is needed.
+
+**Import results…** is the standalone way to push GeoJSON outputs back into the
+active project. Runs no longer auto-import on success — see [Import
+results](#import-results) below.
 
 ## Run
 
@@ -140,6 +146,22 @@ Each action opens a form pre-populated with the CLI's own defaults. At the top, 
 
 If no image is open and no project is loaded, the dialog reports "No image
 available" and does not launch.
+
+The **results directory** is left for the user to fill in. The same scope
+(same images) is commonly run several times with different parameters, each
+wanting its own folder, so the extension never auto-creates one for the run
+dialogs. Leave the field blank to let the extension allocate a fresh
+timestamped folder under the project.
+
+Below the scope radio, a **Chain from previous run** subsection is collapsed by
+default; ticking it reveals the optional `--region-inference-dir` and
+`--object-inference-dir` fields that point at a previous wsinsight run's
+results. This keeps the canonical workflow uncluttered while still supporting
+`run → run` chaining.
+
+A **External inputs** collapsible section lives at the bottom of the dialog
+(also collapsed by default) and surfaces optional directories consumed from
+external tools such as HistoQC's slide QC outputs. Most users never open it.
 
 Path fields accept host paths. In Docker mode they are rewritten into container
 paths; a path outside the slides and results directories raises a clear error
@@ -159,6 +181,29 @@ Container output streams into a log window while the job runs. Carriage returns
 redraw the current line, so a tqdm progress bar updates in place instead of
 adding one line per tick, and ANSI escape sequences are removed. **Cancel** stops
 the run with `docker kill`.
+
+## Import results
+
+`Extensions > wsinsight > Import results…` walks any WSInsight results
+directory you point it at and pushes the `*.geojson` annotations it finds back
+into the matching QuPath image(s). It is fully decoupled from the run dialogs —
+runs never auto-import anymore, so you can step through `patch → infer → hplot →
+niche`, then trigger a single import at the end of the chain.
+
+The dialog asks for:
+
+- **Results directory** — typically a `<project>/wsinsight-runs/.../` folder
+  produced by a previous run, but any folder that follows the WSInsight
+  GeoJSON layout works.
+- **Import into** — **Current open image** for the slide you have visible
+  right now, or **Selected project images…** for a free-form subset you pick
+  from the project.
+
+The import scans `export-geojson/`, `export-niche-regions-geojson/`,
+`model-outputs-geojson/`, `niche-outputs-geojson/`, and the cells/niches
+subfolders under the last one. A summary notification reports how many objects
+were added; slides that have no matching output are noted but do not abort the
+import.
 
 ## Scope (v0.1)
 

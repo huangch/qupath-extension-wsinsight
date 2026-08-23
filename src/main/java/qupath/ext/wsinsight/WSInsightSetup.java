@@ -41,8 +41,6 @@ public class WSInsightSetup {
     private final StringProperty cacheDirProp =
             PathPrefs.createPersistentPreference("wsinsightCacheDir", "");
 
-    private final BooleanProperty autoImportResultsProp =
-            PathPrefs.createPersistentPreference("wsinsightAutoImportResults", true);
     private final BooleanProperty useLocalModelsProp =
             PathPrefs.createPersistentPreference("wsinsightUseLocalModels", true);
     private final BooleanProperty experimentalProp =
@@ -69,7 +67,6 @@ public class WSInsightSetup {
     public StringProperty cliSchemaPathProperty() { return cliSchemaPathProp; }
     public StringProperty s3OptionsProperty() { return s3OptionsProp; }
     public StringProperty cacheDirProperty() { return cacheDirProp; }
-    public BooleanProperty autoImportResultsProperty() { return autoImportResultsProp; }
     public BooleanProperty useLocalModelsProperty() { return useLocalModelsProp; }
     public BooleanProperty experimentalProperty() { return experimentalProp; }
     public StringProperty gpusDetectedProperty() { return gpusDetectedProp; }
@@ -85,7 +82,6 @@ public class WSInsightSetup {
     public String getCliSchemaPath() { return cliSchemaPathProp.get(); }
     public String getS3Options() { return s3OptionsProp.get(); }
     public String getCacheDir() { return cacheDirProp.get(); }
-    public boolean isAutoImportResults() { return autoImportResultsProp.get(); }
     public boolean isUseLocalModels() { return useLocalModelsProp.get(); }
     public boolean isExperimental() { return experimentalProp.get(); }
     public String getGpusDetected() { return gpusDetectedProp.get(); }

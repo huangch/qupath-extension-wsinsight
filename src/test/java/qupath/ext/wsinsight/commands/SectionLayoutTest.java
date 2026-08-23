@@ -135,14 +135,25 @@ class SectionLayoutTest {
     }
 
     @Test
-    void theDialogOpensAtTwiceItsNaturalHeight() {
-        assertEquals(600.0, GenericCommandDialog.preferredBodyHeight(300, 1440));
+    void naturalPlusFudgeOpensAtNaturalSize() {
+        // 300 + 24 = 324 is below the 360 floor (sparse forms still look like
+        // dialogs), so the floor wins on a 1080p screen.
+        assertEquals(360.0, GenericCommandDialog.preferredBodyHeight(300, 1080));
+        // 600 + 24 = 624 sits between the floor and the screen cap (918).
+        assertEquals(624.0, GenericCommandDialog.preferredBodyHeight(600, 1080));
     }
 
     @Test
     void theOpeningHeightStopsShortOfTheScreen() {
-        // 700 * 2 would overflow a 1000 px screen; cap at 70% of it.
-        assertEquals(700.0, GenericCommandDialog.preferredBodyHeight(700, 1000));
+        // 826 + 24 = 850 ties the 85% cap on a 1000-px screen; cap still wins.
+        assertEquals(850.0, GenericCommandDialog.preferredBodyHeight(826, 1000));
+    }
+
+    @Test
+    void smallFormsLiftToTheFloor() {
+        // A 100 px natural body is below the 360 floor on any screen.
+        assertEquals(360.0, GenericCommandDialog.preferredBodyHeight(100, 1440));
+        assertEquals(360.0, GenericCommandDialog.preferredBodyHeight(100, 800));
     }
 
     @Test

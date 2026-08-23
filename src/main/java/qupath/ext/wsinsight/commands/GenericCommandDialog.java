@@ -2,6 +2,7 @@ package qupath.ext.wsinsight.commands;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,6 +88,20 @@ public class GenericCommandDialog {
     private final String title;
     private final String subcommand;
     private final List<ParamSpec> specs;
+    /**
+     * Chain-input flags lifted out of the main grid into a "Chain from
+     * previous run" subsection that the user reveals by ticking a checkbox;
+     * still iterated as part of {@link #specs} elsewhere so argv building and
+     * result conversion see them uniformly.
+     */
+    private final List<ParamSpec> chainSpecs;
+    /**
+     * External-input flags lifted out of the main grid into a collapsed
+     * "External inputs" subsection; the user expands the panel to fill them
+     * in. Same flow as {@link #chainSpecs}: visible on the form, included
+     * in {@link #specs} for argv building.
+     */
+    private final List<ParamSpec> externalSpecs;
     private final Map<String, SchemaLoader.GroupSpec> groupDefs;
     private final java.util.Set<String> autoFlagsForCommand;
     /**
@@ -95,7 +110,6 @@ public class GenericCommandDialog {
      * picker falls back to the schema's hard-coded {@code --model} choices.
      */
     private final Map<String, SchemaLoader.ModelSpec> modelsByLabel = new LinkedHashMap<>();
-
     public GenericCommandDialog(String title, String subcommand, List<ParamSpec> specs) {
         this(title, subcommand, specs, Map.of());
     }
@@ -147,18 +161,53 @@ public class GenericCommandDialog {
                 break;
             }
         }
+        // Pull chain-input flags (region- / object-inference-dir) out of the
+        // main grid into a "Chain from previous run" subsection gated by a
+        // checkbox. The specs still flow through the same arg-building path,
+        // so the form values reach argv without special-casing.
+        List<ParamSpec> chain = new ArrayList<>();
+        // External-input flags (e.g. --histoqc-dir) are also pushed off the
+        // main grid so the dialog stays focused on the canonical wsinsight
+        // workflow; they live in a collapsed "External inputs" panel below.
+        List<ParamSpec> external = new ArrayList<>();
+        for (Iterator<ParamSpec> it = visible.iterator(); it.hasNext(); ) {
+            ParamSpec s = it.next();
+            if (s.flag == null) continue;
+            if (CHAIN_INPUT_FLAGS.contains(s.flag)) {
+                chain.add(asOptional(s));
+                it.remove();
+            } else if (EXTERNAL_INPUT_FLAGS.contains(s.flag)) {
+                external.add(asOptional(s));
+                it.remove();
+            }
+        }
+        // `applyMainOrder` knows about --region-inference-dir as the anchor
+        // for --histoqc-dir, but those anchors now live in `chain` and
+        // `external`. Apply once on the merged list (so the static test
+        // exercising the rules still sees both kinds in place), then again
+        // on `visible` (whose only surviving rules govern --stitch-workers
+        // placement). Rules that name an absent flag are skipped by design.
+        List<ParamSpec> ordered = new ArrayList<>(visible);
+        ordered.addAll(chain);
+        ordered.addAll(external);
+        applyMainOrder(ordered);
         applyMainOrder(visible);
-        this.specs = visible;
+        this.specs = ordered;
+        this.chainSpecs = chain;
+        this.externalSpecs = external;
         this.autoFlagsForCommand = auto;
     }
 
     /**
-     * Ways of locating a model that the dropdown already determines. Showing them
-     * as separate fields invites values that contradict the chosen model, and the
-     * CLI rejects them as mutually exclusive anyway.
+     * Ways of locating a model that the dropdown already determines, or that
+     * point at model weights the user is expected to have provisioned once
+     * (H-Optimus lives on the host under the HF cache). Showing these as
+     * separate fields invites values that contradict the chosen model, and
+     * the CLI rejects them as mutually exclusive anyway.
      */
     private static final java.util.Set<String> HIDDEN_MODEL_FLAGS =
-            java.util.Set.of("--zoo-model-dir", "--config", "--model-path");
+            java.util.Set.of("--zoo-model-dir", "--config", "--model-path",
+                    "--hoptimus-model-dir", "--niche-hoptimus-model-dir");
 
     /** Experimental {@code run}-dialog flags hidden when the pref is off. */
     private static final java.util.Set<String> EXPERIMENTAL_FLAGS =
@@ -167,6 +216,26 @@ public class GenericCommandDialog {
     /** Experimental group keys hidden when the pref is off. */
     private static final java.util.Set<String> EXPERIMENTAL_GROUPS =
             java.util.Set.of("hplot_tuning", "niche_tuning", "ecomp_tuning", "tcomp_tuning");
+
+    /**
+     * Chain-input flags: previous WSInsight runs' results directories that
+     * {@code run} / {@code patch} / {@code infer} / {@code reg} consume as a
+     * downstream input. The user enables them by ticking the "Chain from
+     * previous run" checkbox in the form; the corresponding dir fields are
+     * hidden by default so the dialog stays focused on the canonical case.
+     */
+    private static final java.util.Set<String> CHAIN_INPUT_FLAGS =
+            java.util.Set.of("--region-inference-dir", "--object-inference-dir");
+
+    /**
+     * External-input flags: directories produced by tools other than wsinsight
+     * (e.g. HistoQC's slide-level QC outputs) that the CLI consumes as a
+     * preprocessing input. These are uncommon; park them in a collapsed
+     * "External inputs" section so the main grid stays focused on the
+     * canonical wsinsight workflow.
+     */
+    private static final java.util.Set<String> EXTERNAL_INPUT_FLAGS =
+            java.util.Set.of("--histoqc-dir");
 
     /** Minimum members before a flag prefix earns its own collapsible section. */
     private static final int AUTO_SECTION_MIN = 2;
@@ -244,12 +313,17 @@ public class GenericCommandDialog {
     }
 
     /**
-     * Opening height of the scrollable body. Every section starts collapsed, so
-     * the natural height leaves the dialog cramped; open at twice that, still
-     * short enough to leave the desktop visible.
+     * Opening height of the scrollable body. We open at the body's natural
+     * preferred height (so a near-empty dialog is tiny, a packed one shows
+     * everything) and clamp it between a floor (so sparse forms still read
+     * as a dialog) and {@code 85%} of the screen (so the OK button is
+     * always reachable on laptops).
      */
     static double preferredBodyHeight(double naturalHeight, double screenHeight) {
-        return Math.min(naturalHeight * 2, screenHeight * 0.7);
+        // +24 is a small fudge so the bottom row of labels isn't clipped by
+        // borders / insets after JavaFX lays everything out.
+        double sized = naturalHeight + 24;
+        return Math.max(360, Math.min(sized, screenHeight * 0.85));
     }
 
     /**
@@ -531,6 +605,30 @@ public class GenericCommandDialog {
             tp.setExpanded(false);
             sections.getChildren().add(tp);
         }
+        // External inputs panel: collapsed by default — only the users running
+        // wsinsight alongside HistoQC ever touch these. Inputs are registered
+        // up-front so the last-used snapshot still has a place to land.
+        if (!externalSpecs.isEmpty()) {
+            VBox externalContent = new VBox(6);
+            for (ParamSpec spec : externalSpecs) {
+                Label lbl = new Label(spec.label + ":");
+                lbl.setMinWidth(180);
+                lbl.setPrefWidth(180);
+                if (!spec.help.isBlank()) lbl.setTooltip(new Tooltip(spec.help));
+                Node input = buildInput(spec);
+                HBox row = new HBox(8, lbl, input);
+                HBox.setHgrow(input, javafx.scene.layout.Priority.ALWAYS);
+                row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+                externalContent.getChildren().add(row);
+                inputs.put(keyFor(spec), input);
+            }
+            // The title counts the panel members so a future expansion of
+            // EXTERNAL_INPUT_FLAGS surfaces a hint that the section grew.
+            javafx.scene.control.TitledPane externalPanel = new javafx.scene.control.TitledPane(
+                    "External inputs  (" + externalSpecs.size() + ")", externalContent);
+            externalPanel.setExpanded(false);
+            sections.getChildren().add(externalPanel);
+        }
 
         // Seed all main-grid and inline-group widgets with the user's
         // previously saved values (if any). Done after every widget is
@@ -593,7 +691,9 @@ public class GenericCommandDialog {
         scroller.setMaxHeight(Double.MAX_VALUE);
         scroller.setMaxWidth(Double.MAX_VALUE);
 
-        VBox content = new VBox(scopeBox, scroller);
+        VBox content = !chainSpecs.isEmpty()
+                ? new VBox(scopeBox, buildChainBox(inputs), scroller)
+                : new VBox(scopeBox, scroller);
         VBox.setVgrow(scroller, javafx.scene.layout.Priority.ALWAYS);
         content.setFillWidth(true);
         pane.setContent(content);
@@ -844,19 +944,9 @@ public class GenericCommandDialog {
         }
 
         WSInsightProgressDialog progress = new WSInsightProgressDialog("wsinsight — " + subcommand, runner);
-        // Import GeoJSON annotations produced under the effective results dir
-        // back into the matching project image(s) when the run succeeds.
-        final java.io.File importDir = resultsDir;
-        final RunScope importScope = scope;
-        final Project<?> importProject = project;
-        if (setup.isAutoImportResults()) {
-            progress.setOnFinished(() -> {
-                Integer code = progress.getExitCode();
-                if (code != null && code == 0) {
-                    AutoImport.importResults(importDir, importScope, importProject);
-                }
-            });
-        }
+        // Imports are no longer triggered here. The user invokes them explicitly
+        // through Extensions > wsinsight > Import results..., which lets them run
+        // several wsinsight steps and import once at the end of a chain.
         progress.showAndRun();
     }
 
@@ -1124,6 +1214,49 @@ public class GenericCommandDialog {
         return out.isEmpty() ? List.of(v) : out;
     }
 
+    /**
+     * Build the "Chain from previous run" subsection: a checkbox revealed by
+     * default; when ticked, a column of optional directory pickers for each
+     * chain-input flag becomes visible. Each picker's Node is registered in
+     * {@code inputs} so the result converter emits the right argv tokens.
+     */
+    private VBox buildChainBox(Map<String, Node> inputs) {
+        CheckBox toggle = new CheckBox(
+                "Chain from previous run (region- or object-level results dir)");
+        toggle.setSelected(false);
+        toggle.setTooltip(new Tooltip(
+                "Tick to feed an earlier wsinsight run's results back into this one. "
+                        + "Use the region-inference directory when a previous patch-level "
+                        + "(region) run's class probabilities should annotate object-level "
+                        + "detections; use the object-inference directory when two object-level "
+                        + "runs need to be co-registered."));
+
+        VBox rows = new VBox(6);
+        rows.setPadding(new Insets(0, 0, 0, 24));
+        for (ParamSpec s : chainSpecs) {
+            Label lbl = new Label(s.label + ":");
+            lbl.setMinWidth(180);
+            lbl.setPrefWidth(180);
+            if (!s.help.isBlank()) lbl.setTooltip(new Tooltip(s.help));
+            Node input = buildInput(s);
+            HBox row = new HBox(8, lbl, input);
+            HBox.setHgrow(input, javafx.scene.layout.Priority.ALWAYS);
+            row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+            rows.getChildren().add(row);
+            inputs.put(keyFor(s), input);
+        }
+        rows.setVisible(false);
+        rows.setManaged(false);
+        toggle.selectedProperty().addListener((o, a, b) -> {
+            rows.setVisible(b);
+            rows.setManaged(b);
+        });
+
+        VBox box = new VBox(4, toggle, rows);
+        box.setPadding(new Insets(0, 8, 8, 8));
+        return box;
+    }
+
     private Node buildInput(ParamSpec spec) {
         switch (spec.kind) {
             case BOOL_FLAG: {
@@ -1165,6 +1298,26 @@ public class GenericCommandDialog {
                 Button browse = new Button("…");
                 browse.setTooltip(new Tooltip("Browse…"));
                 browse.setOnAction(ev -> {
+                    // --sptx-dir takes a `sptx-list://<abs path>` URI whose
+                    // payload is a manifest.tsv file; the directory/heuristic
+                    // branch below would mangle it, so handle this one flag
+                    // explicitly before falling back.
+                    if ("--sptx-dir".equals(spec.flag)) {
+                        FileChooser fc = new FileChooser();
+                        fc.getExtensionFilters().add(
+                                new FileChooser.ExtensionFilter("TSV (Xenium manifest)", "*.tsv"));
+                        if (!tf.getText().isBlank()) {
+                            String stripped = tf.getText().startsWith("sptx-list://")
+                                    ? tf.getText().substring("sptx-list://".length())
+                                    : tf.getText();
+                            File init = new File(stripped);
+                            if (init.getParentFile() != null && init.getParentFile().isDirectory())
+                                fc.setInitialDirectory(init.getParentFile());
+                        }
+                        File f = fc.showOpenDialog(null);
+                        if (f != null) tf.setText("sptx-list://" + f.getAbsolutePath());
+                        return;
+                    }
                     // Name-based dir-vs-file heuristic. Anything whose label
                     // or flag suggests "file"/"config"/"path" opens a file
                     // chooser; otherwise (default, matches --wsi-dir,

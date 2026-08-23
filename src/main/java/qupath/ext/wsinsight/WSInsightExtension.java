@@ -89,10 +89,6 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
                 "Host directory used to cache slides streamed from S3/GDC. In Docker "
                         + "mode it must sit under the slides or results directory, "
                         + "otherwise the container cannot see it.");
-        prefs.addPropertyPreference(s.autoImportResultsProperty(), Boolean.class,
-                "Auto-import results", "wsinsight",
-                "Import GeoJSON annotations and OME-CSV measurements back into the "
-                        + "active QuPath project when a job finishes successfully.");
         prefs.addPropertyPreference(s.experimentalProperty(), Boolean.class,
                 "Enable experimental features", "wsinsight",
                 "When enabled, WSINSIGHT_EXPERIMENTAL=1 is set inside the container, "
@@ -168,6 +164,8 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
             menu.getItems().add(mi);
         }
         menu.getItems().add(new javafx.scene.control.SeparatorMenuItem());
+        menu.getItems().add(item("Import results\u2026",
+                () -> new qupath.ext.wsinsight.commands.ImportResultsDialog(qupath).showAndImport()));
         menu.getItems().add(reloadSchemaItem(qupath));
     }
 
