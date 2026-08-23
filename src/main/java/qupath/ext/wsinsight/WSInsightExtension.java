@@ -55,11 +55,15 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
         prefs.addPropertyPreference(s.shmSizeProperty(), String.class,
                 "Shared memory size", "wsinsight",
                 "Value for docker --shm-size. Use '32g' for multi-worker dataloaders.");
-        prefs.addPropertyPreference(s.extraMountsProperty(), String.class,
-                "Extra mounts", "wsinsight",
-                "Additional bind mounts, separated by commas/semicolons/newlines. "
-                        + "Format: 'host/path:/container/path', optionally suffixed "
-                        + "with ':ro' for read-only.");
+        prefs.addPropertyPreference(s.useNativeProperty(), Boolean.class,
+                "Use native wsinsight", "wsinsight",
+                "Run a wsinsight installed on this machine instead of the Docker "
+                        + "image. Paths are passed through unchanged, so no bind "
+                        + "mounts are involved.");
+        prefs.addPropertyPreference(s.nativeBinaryProperty(), String.class,
+                "Native wsinsight binary", "wsinsight",
+                "Executable used when 'Use native wsinsight' is on "
+                        + "(default 'wsinsight', resolved on PATH).");
         prefs.addPropertyPreference(s.cliSchemaPathProperty(), String.class,
                 "CLI schema path", "wsinsight",
                 "Path to the schema written by `wsinsight describe --output <path>`. "
@@ -75,9 +79,9 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
                 "Value passed as S3_STORAGE_OPTIONS inside the container.");
         prefs.addPropertyPreference(s.cacheDirProperty(), String.class,
                 "Remote cache directory", "wsinsight",
-                "Host directory used to cache slides streamed from S3/GDC. It must be "
-                        + "covered by one of the 'Extra mounts' above, otherwise the "
-                        + "container cannot see it.");
+                "Host directory used to cache slides streamed from S3/GDC. In Docker "
+                        + "mode it must sit under the slides or results directory, "
+                        + "otherwise the container cannot see it.");
         prefs.addPropertyPreference(s.autoImportResultsProperty(), Boolean.class,
                 "Auto-import results", "wsinsight",
                 "Import GeoJSON annotations and OME-CSV measurements back into the "

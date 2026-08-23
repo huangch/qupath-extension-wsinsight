@@ -61,20 +61,26 @@ final class RunScope {
      * make wsinsight enumerate every file in the mounted parent directory,
      * including sidecar archives and thumbnails.
      */
-    String writeImageListIfNeeded(File resultsDir) throws IOException {
+    String writeImageListIfNeeded(File resultsDir, boolean forContainer) throws IOException {
         if (slideFiles.isEmpty()) return null;
         File listFile = new File(resultsDir, "_wsinsight_slides.txt");
         Path mountRoot = slidesMountRoot.toPath().toAbsolutePath();
         try (BufferedWriter w = Files.newBufferedWriter(listFile.toPath(), StandardCharsets.UTF_8)) {
             for (File slide : slideFiles) {
                 Path abs = slide.toPath().toAbsolutePath();
-                Path rel = mountRoot.relativize(abs);
-                // Use forward slashes: the container is Linux regardless of host.
-                w.write("/slides/" + rel.toString().replace(File.separatorChar, '/'));
+                if (!forContainer) {
+                    w.write(abs.toString());
+                } else {
+                    Path rel = mountRoot.relativize(abs);
+                    // Use forward slashes: the container is Linux regardless of host.
+                    w.write("/slides/" + rel.toString().replace(File.separatorChar, '/'));
+                }
                 w.newLine();
             }
         }
-        return "image-list:///results/_wsinsight_slides.txt";
+        return forContainer
+                ? "image-list:///results/_wsinsight_slides.txt"
+                : "image-list://" + listFile.getAbsolutePath();
     }
 
     // ------------------------------------------------------------------

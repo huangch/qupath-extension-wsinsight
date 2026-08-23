@@ -13,8 +13,8 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 
-import qupath.ext.wsinsight.runner.DockerRunner;
 import qupath.ext.wsinsight.runner.ProgressListener;
+import qupath.ext.wsinsight.runner.Runner;
 
 /**
  * Modal JavaFX dialog that launches a {@link DockerRunner} on a background
@@ -27,12 +27,12 @@ public class WSInsightProgressDialog {
     private final ProgressBar progressBar;
     private final Label statusLabel;
     private final Button cancelButton;
-    private final DockerRunner runner;
+    private final Runner runner;
 
     private volatile Integer exitCode;
     private Runnable onFinished;
 
-    public WSInsightProgressDialog(String title, DockerRunner runner) {
+    public WSInsightProgressDialog(String title, Runner runner) {
         this.runner = runner;
         this.stage = new Stage();
         stage.setTitle(title);

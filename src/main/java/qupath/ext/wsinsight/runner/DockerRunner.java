@@ -31,7 +31,7 @@ import qupath.ext.wsinsight.WSInsightSetup;
  * {@code javafx.concurrent.Task}. {@link #cancel()} is safe to call from any
  * thread.
  */
-public class DockerRunner {
+public class DockerRunner implements Runner {
 
     private static final Logger logger = LoggerFactory.getLogger(DockerRunner.class);
 
@@ -211,6 +211,7 @@ public class DockerRunner {
     }
 
     /** Launch the container and block until it exits. Safe to invoke once. */
+    @Override
     public int run(ProgressListener listener) throws IOException, InterruptedException {
         List<String> cmd = buildCommand();
         logger.info("Launching WSInsight container: {}", String.join(" ", cmd));
@@ -344,6 +345,7 @@ public class DockerRunner {
     }
 
     /** Kill the running container (if any) via {@code docker kill}. */
+    @Override
     public void cancel() {
         cancelled = true;
         String cid = readCid();
@@ -404,21 +406,6 @@ public class DockerRunner {
             image(s.getDockerImage());
             gpus(s.getGpus());
             shmSize(s.getShmSize());
-            for (String entry : s.getExtraMounts().split("[,;\\n]")) {
-                String e = entry.trim();
-                if (e.isEmpty()) continue;
-                boolean ro = false;
-                if (e.endsWith(":ro")) {
-                    ro = true;
-                    e = e.substring(0, e.length() - 3);
-                } else if (e.endsWith(":rw")) {
-                    e = e.substring(0, e.length() - 3);
-                }
-                int idx = e.lastIndexOf(':');
-                if (idx <= 0) continue;
-                mount(new PathMapper.Mount(new File(e.substring(0, idx)).toPath(),
-                                           e.substring(idx + 1), ro));
-            }
             // WSINSIGHT_ZOO_REGISTRY_PATH and KERAS_HOME are deliberately not set
             // here: the image points them at its bundled /app/zoo and /app/keras,
             // and the latter is where StarDist2D.from_pretrained finds its weights.

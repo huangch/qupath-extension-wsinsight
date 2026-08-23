@@ -23,8 +23,10 @@ public class WSInsightSetup {
     private final StringProperty shmSizeProp =
             PathPrefs.createPersistentPreference("wsinsightShmSize", "32g");
 
-    private final StringProperty extraMountsProp =
-            PathPrefs.createPersistentPreference("wsinsightExtraMounts", "");
+    private final BooleanProperty useNativeProp =
+            PathPrefs.createPersistentPreference("wsinsightUseNative", false);
+    private final StringProperty nativeBinaryProp =
+            PathPrefs.createPersistentPreference("wsinsightNativeBinary", "wsinsight");
 
     private final StringProperty cliSchemaPathProp =
             PathPrefs.createPersistentPreference(
@@ -55,7 +57,8 @@ public class WSInsightSetup {
     public StringProperty dockerImageProperty() { return dockerImageProp; }
     public StringProperty gpusProperty() { return gpusProp; }
     public StringProperty shmSizeProperty() { return shmSizeProp; }
-    public StringProperty extraMountsProperty() { return extraMountsProp; }
+    public BooleanProperty useNativeProperty() { return useNativeProp; }
+    public StringProperty nativeBinaryProperty() { return nativeBinaryProp; }
     public StringProperty cliSchemaPathProperty() { return cliSchemaPathProp; }
     public StringProperty s3OptionsProperty() { return s3OptionsProp; }
     public StringProperty cacheDirProperty() { return cacheDirProp; }
@@ -68,7 +71,8 @@ public class WSInsightSetup {
     public String getDockerImage() { return dockerImageProp.get(); }
     public String getGpus() { return gpusProp.get(); }
     public String getShmSize() { return shmSizeProp.get(); }
-    public String getExtraMounts() { return extraMountsProp.get(); }
+    public boolean isUseNative() { return useNativeProp.get(); }
+    public String getNativeBinary() { return nativeBinaryProp.get(); }
     public String getCliSchemaPath() { return cliSchemaPathProp.get(); }
     public String getS3Options() { return s3OptionsProp.get(); }
     public String getCacheDir() { return cacheDirProp.get(); }

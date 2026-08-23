@@ -641,7 +641,8 @@ public class GenericCommandDialog {
         // Materialise the image-list manifest up-front if we're batching.
         String wsiDirOverride;
         try {
-            wsiDirOverride = scope.writeImageListIfNeeded(resultsDir);
+            wsiDirOverride = scope.writeImageListIfNeeded(
+                    resultsDir, !WSInsightSetup.getInstance().isUseNative());
         } catch (java.io.IOException e) {
             Dialogs.showErrorMessage("wsinsight",
                     "Failed to write slide list: " + e.getMessage());
@@ -650,18 +651,29 @@ public class GenericCommandDialog {
 
         // --- Build argv ---------------------------------------------------
         WSInsightSetup setup = WSInsightSetup.getInstance();
-        DockerRunner.Builder rb = DockerRunner.builder().fromSetup(setup);
-        // fromSetup handles extra mounts; mount the scope-derived slidesMountRoot
-        // and the scratch results dir.
-        rb.mount(new qupath.ext.wsinsight.runner.PathMapper.Mount(
-                slidesMountRoot.toPath(), "/slides"));
-        rb.mount(new qupath.ext.wsinsight.runner.PathMapper.Mount(
-                resultsDir.toPath(), "/results"));
-        rb.arg(subcommand);
+        boolean useNative = setup.isUseNative();
+
+        DockerRunner.Builder rb = null;
+        qupath.ext.wsinsight.runner.NativeRunner.Builder nb = null;
         // Translate against the runner's own mounts, so -v flags and rewritten
-        // arguments can never disagree.
-        qupath.ext.wsinsight.runner.PathMapper pm =
-                new qupath.ext.wsinsight.runner.PathMapper(rb.getMounts());
+        // arguments can never disagree. A native run needs no translation at
+        // all, which is why pm stays null there.
+        qupath.ext.wsinsight.runner.PathMapper pm = null;
+        if (useNative) {
+            nb = qupath.ext.wsinsight.runner.NativeRunner.builder().fromSetup(setup);
+        } else {
+            rb = DockerRunner.builder().fromSetup(setup);
+            rb.mount(new qupath.ext.wsinsight.runner.PathMapper.Mount(
+                    slidesMountRoot.toPath(), "/slides"));
+            rb.mount(new qupath.ext.wsinsight.runner.PathMapper.Mount(
+                    resultsDir.toPath(), "/results"));
+            pm = new qupath.ext.wsinsight.runner.PathMapper(rb.getMounts());
+        }
+        final DockerRunner.Builder dockerArgs = rb;
+        final qupath.ext.wsinsight.runner.NativeRunner.Builder nativeArgs = nb;
+        java.util.function.Consumer<String> addArg =
+                a -> { if (dockerArgs != null) dockerArgs.arg(a); else nativeArgs.arg(a); };
+        addArg.accept(subcommand);
 
         List<ParamSpec> missing = new ArrayList<>();
         for (ParamSpec spec : specs) {
@@ -674,11 +686,11 @@ public class GenericCommandDialog {
 
             switch (spec.kind) {
                 case BOOL_FLAG:
-                    if ("true".equalsIgnoreCase(val)) rb.arg(spec.flag);
+                    if ("true".equalsIgnoreCase(val)) addArg.accept(spec.flag);
                     break;
                 case PATH:
                     String resolved = val;
-                    if (spec.translatePath) {
+                    if (spec.translatePath && pm != null) {
                         String mapped = pm.hostToContainer(val);
                         if (mapped != null) {
                             resolved = mapped;
@@ -688,12 +700,14 @@ public class GenericCommandDialog {
                             resolved = val;
                         } else {
                             throw new IllegalStateException(
-                                    "Path '" + val + "' is not covered by any configured Docker bind mount. "
-                                    + "Add it under 'Extra mounts' in Edit → Preferences → WSInsight.");
+                                    "Path '" + val + "' is outside the slides and results "
+                                    + "directories, so the container cannot see it.\n\n"
+                                    + "Move it under one of them, or turn on "
+                                    + "'Use native wsinsight' in Edit → Preferences → wsinsight.");
                         }
                     }
-                    if (spec.flag != null) rb.arg(spec.flag);
-                    rb.arg(resolved);
+                    if (spec.flag != null) addArg.accept(spec.flag);
+                    addArg.accept(resolved);
                     break;
                 default:
                     // Model source is a preference, not a guess: falling back to
@@ -702,9 +716,11 @@ public class GenericCommandDialog {
                     if ("--model".equals(spec.flag) && modelsByLabel.containsKey(val)) {
                         SchemaLoader.ModelSpec m = modelsByLabel.get(val);
                         if (!setup.isUseLocalModels()) {
-                            rb.arg(spec.flag).arg(m.name);
+                            addArg.accept(spec.flag);
+                            addArg.accept(m.name);
                         } else if (m.path != null) {
-                            rb.arg("--zoo-model-dir").arg(m.path);
+                            addArg.accept("--zoo-model-dir");
+                            addArg.accept(m.path);
                         } else {
                             throw new IllegalStateException(
                                     "'Use local model files' is on, but wsinsight reported no local "
@@ -715,8 +731,8 @@ public class GenericCommandDialog {
                         }
                         break;
                     }
-                    if (spec.flag != null) rb.arg(spec.flag);
-                    for (String tok : tokensFor(spec, val)) rb.arg(tok);
+                    if (spec.flag != null) addArg.accept(spec.flag);
+                    for (String tok : tokensFor(spec, val)) addArg.accept(tok);
                     break;
             }
         }
@@ -733,31 +749,48 @@ public class GenericCommandDialog {
         // plain /slides mount so wsinsight processes exactly the chosen set.
         for (Map.Entry<String, String> e : AUTO_PATH_FLAGS.entrySet()) {
             if (!autoFlagsForCommand.contains(e.getKey())) continue;
-            String value = e.getValue();
+            String value = useNative
+                    ? ("--wsi-dir".equals(e.getKey())
+                            ? slidesMountRoot.getAbsolutePath()
+                            : resultsDir.getAbsolutePath())
+                    : e.getValue();
             if ("--wsi-dir".equals(e.getKey()) && wsiDirOverride != null) {
                 value = wsiDirOverride;
             }
-            rb.arg(e.getKey()).arg(value);
+            addArg.accept(e.getKey());
+            addArg.accept(value);
         }
 
-        DockerRunner runner = rb.build();
-        // Pre-flight: ensure the configured image exists locally. If not,
-        // offer to pull it before launching the real workload so a missing
-        // image surfaces as a clear prompt instead of a cryptic `docker run`
-        // failure deep in the progress log.
-        if (!DockerRunner.imageExists(setup.getDockerBinary(), setup.getDockerImage())) {
-            boolean pull = Dialogs.showYesNoDialog(
-                    "WSInsight",
-                    "Docker image not found locally:\n    "
-                            + setup.getDockerImage()
-                            + "\n\nPull it now? (This may take several minutes.)");
-            if (!pull) return;
-            int rc = DockerPull.runWithProgress(setup.getDockerBinary(), setup.getDockerImage());
-            if (rc != 0) {
+        qupath.ext.wsinsight.runner.Runner runner;
+        if (useNative) {
+            if (!qupath.ext.wsinsight.runner.NativeRunner.isAvailable(setup.getNativeBinary())) {
                 Dialogs.showErrorMessage("wsinsight",
-                        "docker pull failed (exit code " + rc + "). See log for details.");
+                        "Could not run '" + setup.getNativeBinary() + " --version'.\n\n"
+                        + "Set the executable under Edit → Preferences → wsinsight, "
+                        + "or turn 'Use native wsinsight' off to use Docker.");
                 return;
             }
+            runner = nativeArgs.build();
+        } else {
+            // Pre-flight: ensure the configured image exists locally. If not,
+            // offer to pull it before launching the real workload so a missing
+            // image surfaces as a clear prompt instead of a cryptic `docker run`
+            // failure deep in the progress log.
+            if (!DockerRunner.imageExists(setup.getDockerBinary(), setup.getDockerImage())) {
+                boolean pull = Dialogs.showYesNoDialog(
+                        "WSInsight",
+                        "Docker image not found locally:\n    "
+                                + setup.getDockerImage()
+                                + "\n\nPull it now? (This may take several minutes.)");
+                if (!pull) return;
+                int rc = DockerPull.runWithProgress(setup.getDockerBinary(), setup.getDockerImage());
+                if (rc != 0) {
+                    Dialogs.showErrorMessage("wsinsight",
+                            "docker pull failed (exit code " + rc + "). See log for details.");
+                    return;
+                }
+            }
+            runner = dockerArgs.build();
         }
 
         WSInsightProgressDialog progress = new WSInsightProgressDialog("wsinsight — " + subcommand, runner);
