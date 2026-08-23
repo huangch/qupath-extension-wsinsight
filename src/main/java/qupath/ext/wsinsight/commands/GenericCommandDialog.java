@@ -264,21 +264,63 @@ public class GenericCommandDialog {
      * declaration order groups these poorly: the two worker counts end up in
      * opposite columns, and the two directory pickers are split apart.
      * Rules are applied in order, so one may build on another.
+     *
+     * <p>The two special anchor tokens {@code __TOP__} and {@code __BOTTOM__}
+     * (handled in {@link #applyMainOrder}) replace the conventional "follow
+     * flag" anchor so a rule can pin a param to the first or last row of the
+     * main grid. As of 2026-08-23 this is used to push {@code --results-dir}
+     * to the very top of every dialog so users see and update the output path
+     * before everything else.
      */
+    static final String ANCHOR_TOP = "__TOP__";
+    static final String ANCHOR_BOTTOM = "__BOTTOM__";
+
     private static final List<Map.Entry<String, String>> MAIN_ORDER_AFTER = List.of(
             Map.entry("--stitch-workers", "--num-workers"),
             Map.entry("--region-inference-dir", "--overwrite"),
-            Map.entry("--histoqc-dir", "--region-inference-dir"));
+            Map.entry("--histoqc-dir", "--region-inference-dir"),
+            Map.entry("--results-dir", ANCHOR_TOP)            // 2026-08-23: results-dir to top
+    );
 
     /** Reorder the main grid in place; rules naming an absent flag are skipped. */
     static void applyMainOrder(List<ParamSpec> specs) {
         for (Map.Entry<String, String> rule : MAIN_ORDER_AFTER) {
             int from = indexOfFlag(specs, rule.getKey());
-            int after = indexOfFlag(specs, rule.getValue());
-            if (from < 0 || after < 0)
+            if (from < 0)
                 continue;
-            ParamSpec moved = specs.remove(from);
-            specs.add(indexOfFlag(specs, rule.getValue()) + 1, moved);
+            String anchor = rule.getValue();
+            if (ANCHOR_TOP.equals(anchor)) {
+                // Move to index 0 (very top of the dialog).
+                ParamSpec moved = specs.remove(from);
+                specs.add(0, moved);
+            } else if (ANCHOR_BOTTOM.equals(anchor)) {
+                // Move to the end (very bottom).
+                ParamSpec moved = specs.remove(from);
+                specs.add(moved);
+            } else {
+                int after = indexOfFlag(specs, anchor);
+                if (after < 0) {
+                    // Anchor flag absent for this subcommand — skip the rule
+                    // entirely, leaving the moved-from element in its
+                    // original-ish position. Pre-fix: we used specs.add(0, …)
+                    // here, which broke `rulesNamingAnAbsentFlagAreSkipped`.
+                    continue;
+                }
+                // Remove the source element first; the anchor index then
+                // shifts left by one if it sat *after* the source. Re-fetch
+                // the anchor index against the now-shorter list to avoid an
+                // off-by-one (IndexOutOfBoundsException) the previous code
+                // tripped over when `from < after`.
+                ParamSpec moved = specs.remove(from);
+                int afterAfter = indexOfFlag(specs, anchor);
+                if (afterAfter < 0) {
+                    // Anchor disappeared (mustn't happen, the anchor was
+                    // re-checked above) — fall back to appending.
+                    specs.add(moved);
+                } else {
+                    specs.add(afterAfter + 1, moved);
+                }
+            }
         }
     }
 
@@ -362,11 +404,31 @@ public class GenericCommandDialog {
         // Used further down to seed widgets after they're built and to
         // pre-populate per-group sub-dialog state so re-opening a sub-dialog
         // restores the user's last choices.
-        Map<String, String> lastUsed = LastUsedValues.load(subcommand);
+        //
+        // 2026-08-23: Preference layers, project-scoped memory wins when
+        // a project is open, otherwise the user-wide LastUsedValues fallback.
+        // The user-wide layer remains so single-image workflows (no project
+        // loaded) still recall the previous value.
+        Project<?> project = gui != null ? gui.getProject() : null;
+
+        // Previously-saved user input for this subcommand (per-flag values).
+        // Used further down to seed widgets after they're built and to
+        // pre-populate per-group sub-dialog state so re-opening a sub-dialog
+        // restores the user's last choices.
+        //
+        // 2026-08-23: Preference layers, project-scoped memory wins when
+        // a project is open, otherwise the user-wide LastUsedValues fallback.
+        // The user-wide layer remains so single-image workflows (no project
+        // loaded) still recall the previous value.
+        Map<String, String> lastUsed;
+        if (ProjectLastUsedValues.hasProject(project)) {
+            lastUsed = ProjectLastUsedValues.load(project, subcommand);
+        } else {
+            lastUsed = LastUsedValues.load(subcommand);
+        }
 
         // --- Scope availability ------------------------------------------
         RunScope currentScope = RunScope.fromCurrentImage(gui);
-        Project<?> project = gui != null ? gui.getProject() : null;
         boolean haveProject = project != null && !project.getImageList().isEmpty();
 
         if (currentScope == null && !haveProject) {
@@ -738,6 +800,14 @@ public class GenericCommandDialog {
         // seeds the widgets with the user's previous input. `result` already
         // contains main-grid, inline-group, and dialog-group values (merged
         // by the result converter), making it the canonical snapshot.
+        //
+        // 2026-08-23: write to project-scoped storage when a project is open,
+        // so Project A's --results-dir doesn't leak into Project B's dialog.
+        // Still also save to the user-wide LastUsedValues so single-image
+        // (no-project) flows continue to remember.
+        if (ProjectLastUsedValues.hasProject(project)) {
+            ProjectLastUsedValues.save(project, subcommand, result);
+        }
         LastUsedValues.save(subcommand, result);
 
         // --- Results dir --------------------------------------------------
