@@ -146,6 +146,23 @@ class SectionLayoutTest {
     }
 
     @Test
+    void autoMeansTheBackendIsNotPassedAtAll() {
+        assertEquals(List.of(), GenericCommandDialog.globalArgs("auto"));
+        assertEquals(List.of(), GenericCommandDialog.globalArgs(""));
+        assertEquals(List.of(), GenericCommandDialog.globalArgs("   "));
+        assertEquals(List.of(), GenericCommandDialog.globalArgs(null));
+    }
+
+    @Test
+    void anExplicitBackendIsPassedAsAGroupOption() {
+        // Click needs group options ahead of the subcommand.
+        assertEquals(List.of("--backend", "tiffslide"),
+                GenericCommandDialog.globalArgs("tiffslide"));
+        assertEquals(List.of("--backend", "openslide"),
+                GenericCommandDialog.globalArgs("openslide"));
+    }
+
+    @Test
     void onlyBooleanSwitchesAreTaken() {
         // --import takes a value, so it is not a section toggle.
         List<ParamSpec> main = new ArrayList<>(List.of(opt("--import")));

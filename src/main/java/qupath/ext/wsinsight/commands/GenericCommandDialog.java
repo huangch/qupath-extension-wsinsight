@@ -62,6 +62,28 @@ public class GenericCommandDialog {
             "--wsi-dir", "/slides",
             "--results-dir", "/results");
 
+    /** Auto-supplied flags the user may still override from the form. */
+    private static final java.util.Set<String> OPTIONAL_AUTO_FLAGS =
+            java.util.Set.of("--results-dir");
+
+    /** Same parameter, but blank is allowed because a value is derived when empty. */
+    private static ParamSpec asOptional(ParamSpec s) {
+        return ParamSpec.builder()
+                .flag(s.flag)
+                .label(s.label)
+                .help("Leave blank to create a new timestamped folder. "
+                        + "Point it at an earlier run to reuse those results.")
+                .kind(s.kind)
+                .defaultValue("")
+                .choices(s.choices)
+                .translatePath(s.translatePath)
+                .required(false)
+                .group(s.group)
+                .columnBreak(s.columnBreak)
+                .nargs(s.nargs)
+                .build();
+    }
+
     private final String title;
     private final String subcommand;
     private final List<ParamSpec> specs;
@@ -100,6 +122,11 @@ public class GenericCommandDialog {
         for (ParamSpec s : specs) {
             if (s.flag != null && AUTO_PATH_FLAGS.containsKey(s.flag)) {
                 auto.add(s.flag);
+                // The results directory stays on the form so a previous run's
+                // outputs can be reused; blank means "pick one for me".
+                if (OPTIONAL_AUTO_FLAGS.contains(s.flag)) {
+                    visible.add(asOptional(s));
+                }
                 continue;
             }
             if (s.flag != null && HIDDEN_MODEL_FLAGS.contains(s.flag)) continue;
@@ -225,6 +252,17 @@ public class GenericCommandDialog {
         return Math.min(naturalHeight * 2, screenHeight * 0.7);
     }
 
+    /**
+     * Options the CLI declares on its top-level group rather than on any
+     * subcommand, so they are not in the schema and cannot come from the form.
+     */
+    static List<String> globalArgs(String wsiBackend) {
+        if (wsiBackend == null || wsiBackend.isBlank()
+                || WSInsightSetup.WSI_BACKEND_AUTO.equals(wsiBackend))
+            return List.of();
+        return List.of("--backend", wsiBackend);
+    }
+
     /** Section titles match the flags they contain, so they stay lower case. */
     static String sectionTitle(String prefix) {
         return prefix;
@@ -260,14 +298,6 @@ public class GenericCommandDialog {
         if (currentScope == null && !haveProject) {
             Dialogs.showErrorMessage("wsinsight",
                     "No image available. Open a slide or open a project with images.");
-            return;
-        }
-
-        // --- Results dir --------------------------------------------------
-        java.io.File resultsDir = resolveHostResultsRoot(setupPre, project);
-        if (resultsDir == null) {
-            Dialogs.showErrorMessage("wsinsight",
-                    "Could not create a results directory.");
             return;
         }
 
@@ -610,6 +640,20 @@ public class GenericCommandDialog {
         // by the result converter), making it the canonical snapshot.
         LastUsedValues.save(subcommand, result);
 
+        // --- Results dir --------------------------------------------------
+        // An explicit folder reuses whatever a previous run left there; blank
+        // creates a fresh timestamped one.
+        String requestedResults = result.get("--results-dir");
+        java.io.File resultsDir = resolveResultsDir(
+                requestedResults, () -> resolveHostResultsRoot(setupPre, project));
+        if (resultsDir == null) {
+            Dialogs.showErrorMessage("wsinsight",
+                    requestedResults == null || requestedResults.isBlank()
+                            ? "Could not create a results directory."
+                            : "Not a usable results directory: " + requestedResults);
+            return;
+        }
+
         // --- Resolve the user's scope choice -----------------------------
         RunScope scope;
         {
@@ -673,10 +717,16 @@ public class GenericCommandDialog {
         final qupath.ext.wsinsight.runner.NativeRunner.Builder nativeArgs = nb;
         java.util.function.Consumer<String> addArg =
                 a -> { if (dockerArgs != null) dockerArgs.arg(a); else nativeArgs.arg(a); };
+        // Group-level options belong ahead of the subcommand: Click rejects
+        // `wsinsight run --backend ...`.
+        for (String a : globalArgs(setup.getWsiBackend())) addArg.accept(a);
         addArg.accept(subcommand);
 
         List<ParamSpec> missing = new ArrayList<>();
         for (ParamSpec spec : specs) {
+            // Appended below with the resolved directory, not from the form.
+            if (spec.flag != null && AUTO_PATH_FLAGS.containsKey(spec.flag))
+                continue;
             String val = result.get(keyFor(spec));
             if (spec.required && (val == null || val.isBlank())) {
                 missing.add(spec);
@@ -1179,6 +1229,17 @@ public class GenericCommandDialog {
      * travel with the project and can be re-inspected later. Otherwise, a
      * fresh scratch directory under the system temp folder is created.
      */
+    /**
+     * The folder the user asked for, or {@code fallback} when they left the
+     * field blank. Null means the requested path could not be used.
+     */
+    static File resolveResultsDir(String requested, java.util.function.Supplier<File> fallback) {
+        if (requested == null || requested.isBlank())
+            return fallback.get();
+        File dir = new File(requested.trim());
+        return dir.isDirectory() || dir.mkdirs() ? dir : null;
+    }
+
     private File resolveHostResultsRoot(WSInsightSetup setup, Project<?> project) {
         String stamp = java.time.LocalDateTime.now()
                 .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));

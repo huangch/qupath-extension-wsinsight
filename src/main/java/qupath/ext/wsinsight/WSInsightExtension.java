@@ -64,6 +64,13 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
                 "Native wsinsight binary", "wsinsight",
                 "Executable used when 'Use native wsinsight' is on "
                         + "(default 'wsinsight', resolved on PATH).");
+        prefs.addChoicePropertyPreference(s.wsiBackendProperty(),
+                javafx.collections.FXCollections.observableArrayList(
+                        WSInsightSetup.WSI_BACKEND_AUTO, "openslide", "tiffslide"),
+                String.class,
+                "WSI backend", "wsinsight",
+                "Library used to read slides, passed as `wsinsight --backend`. "
+                        + "'auto' lets wsinsight pick whichever is installed.");
         prefs.addPropertyPreference(s.cliSchemaPathProperty(), String.class,
                 "CLI schema path", "wsinsight",
                 "Path to the schema written by `wsinsight describe --output <path>`. "

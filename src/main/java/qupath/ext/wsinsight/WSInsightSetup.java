@@ -28,6 +28,9 @@ public class WSInsightSetup {
     private final StringProperty nativeBinaryProp =
             PathPrefs.createPersistentPreference("wsinsightNativeBinary", "wsinsight");
 
+    private final StringProperty wsiBackendProp =
+            PathPrefs.createPersistentPreference("wsinsightWsiBackend", WSI_BACKEND_AUTO);
+
     private final StringProperty cliSchemaPathProp =
             PathPrefs.createPersistentPreference(
                     "wsinsightCliSchemaPath",
@@ -47,6 +50,9 @@ public class WSInsightSetup {
     private final StringProperty gpusDetectedProp =
             PathPrefs.createPersistentPreference("wsinsightGpusDetected", "");
 
+    /** Leave the slide-reading backend to wsinsight's own detection. */
+    public static final String WSI_BACKEND_AUTO = "auto";
+
     private WSInsightSetup() {}
 
     public static WSInsightSetup getInstance() {
@@ -59,6 +65,7 @@ public class WSInsightSetup {
     public StringProperty shmSizeProperty() { return shmSizeProp; }
     public BooleanProperty useNativeProperty() { return useNativeProp; }
     public StringProperty nativeBinaryProperty() { return nativeBinaryProp; }
+    public StringProperty wsiBackendProperty() { return wsiBackendProp; }
     public StringProperty cliSchemaPathProperty() { return cliSchemaPathProp; }
     public StringProperty s3OptionsProperty() { return s3OptionsProp; }
     public StringProperty cacheDirProperty() { return cacheDirProp; }
@@ -73,6 +80,8 @@ public class WSInsightSetup {
     public String getShmSize() { return shmSizeProp.get(); }
     public boolean isUseNative() { return useNativeProp.get(); }
     public String getNativeBinary() { return nativeBinaryProp.get(); }
+    public String getWsiBackend() { return wsiBackendProp.get(); }
+
     public String getCliSchemaPath() { return cliSchemaPathProp.get(); }
     public String getS3Options() { return s3OptionsProp.get(); }
     public String getCacheDir() { return cacheDirProp.get(); }

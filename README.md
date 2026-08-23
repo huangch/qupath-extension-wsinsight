@@ -76,6 +76,7 @@ Run the tests with `./gradlew test`.
 | GPUs | docker | Value for `docker --gpus` (`all`, `none`, `device=0,1`, …) |
 | Shared memory size | docker | Value for `docker --shm-size` (default `32g`) |
 | Detected GPUs | docker | Cached `nvidia-smi -L` output, refreshed at startup when the image is present |
+| WSI backend | both | Library used to read slides, passed as `wsinsight --backend`. `auto` lets wsinsight pick whichever is installed |
 | CLI schema path | both | File written by `wsinsight describe --output` (default `~/.wsinsight/cli-schema.json`) |
 | Use local model files | both | On: pass `--zoo-model-dir` from the path in the schema. Off: pass `--model` and download from HuggingFace |
 | S3 storage options (JSON) | both | Sets `S3_STORAGE_OPTIONS` |
@@ -193,6 +194,15 @@ bind mounts, `--gpus`, `--shm-size` and cancels with `docker kill`;
 process and its descendants, since wsinsight's dataloader workers would
 otherwise outlive it. Path rewriting is the other difference: `PathMapper` is
 used only for Docker, and is bypassed entirely in native mode.
+
+### Group options are not in the schema
+
+`--backend` and `--log-level` are declared on the CLI's top-level Click group,
+and `describe` only walks `cli.commands`, so neither reaches the schema. They
+also have to precede the subcommand — `wsinsight --backend tiffslide run …` — so
+they cannot be ordinary form fields. `GenericCommandDialog.globalArgs` emits them
+ahead of the subcommand from preferences instead; anything else the group grows
+belongs there too.
 
 ### Experimental command list
 
