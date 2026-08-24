@@ -426,6 +426,12 @@ public class GenericCommandDialog {
         } else {
             lastUsed = LastUsedValues.load(subcommand);
         }
+        // 2026-08-23 (shared results-dir): overlay the project's most
+        // recent --results-dir on top, regardless of which subcommand
+        // wrote it last. Other widgets keep their per-subcommand values
+        // so e.g. model_path stays per-subcommand.
+        SharedResultsDir.read(project).ifPresent(p ->
+                lastUsed.put(SharedResultsDir.KEY_PATH, p));
 
         // --- Scope availability ------------------------------------------
         RunScope currentScope = RunScope.fromCurrentImage(gui);
@@ -809,6 +815,14 @@ public class GenericCommandDialog {
             ProjectLastUsedValues.save(project, subcommand, result);
         }
         LastUsedValues.save(subcommand, result);
+
+        // 2026-08-23: also mirror --results-dir into the *shared* slot so
+        // any other dialog openable from the same session (Import is the
+        // main example) starts pre-filled with this value.
+        String resultsDirValue = result.get(SharedResultsDir.KEY_PATH);
+        if (resultsDirValue != null && !resultsDirValue.isBlank()) {
+            SharedResultsDir.write(project, resultsDirValue);
+        }
 
         // --- Results dir --------------------------------------------------
         // An explicit folder reuses whatever a previous run left there; blank
