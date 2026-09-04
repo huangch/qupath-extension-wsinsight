@@ -113,6 +113,12 @@ public final class NativeRunner implements Runner {
         /** Pre-populate the environment from {@link WSInsightSetup}. */
         public Builder fromSetup(WSInsightSetup s) {
             binary(s.getNativeBinary());
+            // Blank preferences are dropped by env(), so the process keeps
+            // whatever the environment that launched QuPath already exported.
+            env("WSINSIGHT_ZOO_REGISTRY_PATH", s.getZooRegistryPath());
+            env("KERAS_HOME", s.getKerasHome());
+            env("HF_HOME", s.getHfHome());
+            if (s.isHfTransfer()) env("HF_HUB_ENABLE_HF_TRANSFER", "1");
             env("S3_STORAGE_OPTIONS", s.getS3Options());
             env("WSINSIGHT_REMOTE_CACHE_DIR", s.getCacheDir());
             if (s.isExperimental()) env("WSINSIGHT_EXPERIMENTAL", "1");

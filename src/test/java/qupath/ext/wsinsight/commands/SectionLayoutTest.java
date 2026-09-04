@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Grouping of the run dialog's optional flags, which is derived from the CLI
- * flag prefixes because {@code wsinsight describe} carries no GUI hints.
+ * flag prefixes because {@code wsinsight schema} carries no GUI hints.
  */
 class SectionLayoutTest {
 

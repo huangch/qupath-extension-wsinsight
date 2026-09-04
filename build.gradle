@@ -75,7 +75,7 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
-// The CLI schema is no longer bundled: `wsinsight describe --output <path>`
+// The CLI schema is no longer bundled: `wsinsight schema --output <path>`
 // writes it and the extension reads that file at runtime, so there is no second
 // copy here to keep in sync or verify.
 

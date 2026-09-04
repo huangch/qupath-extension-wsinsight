@@ -26,7 +26,7 @@ import qupath.ext.wsinsight.WSInsightSetup;
  * Spawns the WSInsight Docker container, streams its output to a
  * {@link ProgressListener}, and supports cancellation via {@code docker kill}.
  * <p>
- * Thread model: {@link #run()} blocks the calling thread until the container
+ * Thread model: {@link #run(ProgressListener)} blocks the calling thread until the container
  * exits, so callers should typically invoke it from a background
  * {@code javafx.concurrent.Task}. {@link #cancel()} is safe to call from any
  * thread.
@@ -406,9 +406,13 @@ public class DockerRunner implements Runner {
             image(s.getDockerImage());
             gpus(s.getGpus());
             shmSize(s.getShmSize());
-            // WSINSIGHT_ZOO_REGISTRY_PATH and KERAS_HOME are deliberately not set
-            // here: the image points them at its bundled /app/zoo and /app/keras,
-            // and the latter is where StarDist2D.from_pretrained finds its weights.
+            // Blank preferences are dropped by env(), leaving the image's own
+            // /app/zoo and /app/keras in place; a set one overrides them, but
+            // the path must be visible inside the container.
+            env("WSINSIGHT_ZOO_REGISTRY_PATH", s.getZooRegistryPath());
+            env("KERAS_HOME", s.getKerasHome());
+            env("HF_HOME", s.getHfHome());
+            if (s.isHfTransfer()) env("HF_HUB_ENABLE_HF_TRANSFER", "1");
             env("S3_STORAGE_OPTIONS", s.getS3Options());
             env("WSINSIGHT_REMOTE_CACHE_DIR", s.getCacheDir());
             if (s.isExperimental()) env("WSINSIGHT_EXPERIMENTAL", "1");

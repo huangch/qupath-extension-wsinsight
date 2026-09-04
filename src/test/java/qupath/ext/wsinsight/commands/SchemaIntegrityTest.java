@@ -93,7 +93,7 @@ public class SchemaIntegrityTest {
         Path missing = dir.resolve("absent.json");
         IOException e = assertThrows(SchemaLoader.SchemaUnavailableException.class,
                 () -> SchemaLoader.fromFile(missing));
-        assertTrue(e.getMessage().contains("wsinsight describe --output"),
+        assertTrue(e.getMessage().contains("wsinsight schema --output"),
                 "Message must tell the user how to produce the file: " + e.getMessage());
     }
 

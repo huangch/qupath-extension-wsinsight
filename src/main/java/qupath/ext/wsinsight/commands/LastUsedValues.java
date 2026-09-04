@@ -32,6 +32,24 @@ public final class LastUsedValues {
 
     private LastUsedValues() {}
 
+    /**
+     * Forget every remembered value across all subcommands.
+     *
+     * @return number of subcommands whose stored values were removed
+     */
+    public static int clearAll() {
+        try {
+            Preferences root = PathPrefs.getUserPreferences().node(ROOT_NODE);
+            int n = root.childrenNames().length;
+            root.removeNode();
+            PathPrefs.getUserPreferences().flush();
+            return n;
+        } catch (BackingStoreException e) {
+            logger.debug("Could not clear last-used values: {}", e.toString());
+            return 0;
+        }
+    }
+
     /** @return previously saved flag → value map for {@code subcommand}; empty if none. */
     public static Map<String, String> load(String subcommand) {
         Map<String, String> out = new LinkedHashMap<>();

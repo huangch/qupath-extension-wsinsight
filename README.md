@@ -8,7 +8,7 @@ open image or the active QuPath project; results land in a scratch directory and
 are imported back into the project on success.
 
 The forms are **auto-generated** from the CLI schema that
-`wsinsight describe --output <path>` writes. The extension reads that file at
+`wsinsight schema --output <path>` writes. The extension reads that file at
 startup — it never generates or re-validates it, since the CLI is the only thing
 that should produce it. The same file supplies the `--model` dropdown, so the
 model list always reflects the environment that will run inference.
@@ -22,7 +22,7 @@ Native:
 
 ```bash
 mkdir -p ~/.wsinsight
-wsinsight describe --output ~/.wsinsight/cli-schema.json
+wsinsight schema --output ~/.wsinsight/cli-schema.json
 ```
 
 Docker:
@@ -30,13 +30,18 @@ Docker:
 ```bash
 mkdir -p ~/.wsinsight
 docker run --rm -v ~/.wsinsight:/out huangchtw/wsinsight:latest \
-    wsinsight describe --output /out/cli-schema.json
+    wsinsight schema --output /out/cli-schema.json
 ```
 
 Regenerate it whenever the CLI or the model zoo changes, then use
 `Extensions > wsinsight > Reload CLI schema` — no QuPath restart needed. The
 schema records `wsinsight_version`, which is shown on reload, so a stale one is
 easy to spot.
+
+Reloading then offers to reset the parameters the dialogs remember. That is
+offered rather than done because those values are your own input, while a
+reload is usually just about picking up a new model; answering **No** still
+reloads the schema.
 
 ## Requirements
 
@@ -77,8 +82,15 @@ Run the tests with `./gradlew test`.
 | Shared memory size | docker | Value for `docker --shm-size` (default `32g`) |
 | Detected GPUs | docker | Cached `nvidia-smi -L` output, refreshed at startup when the image is present |
 | WSI backend | both | Library used to read slides, passed as `wsinsight --backend`. `auto` lets wsinsight pick whichever is installed |
-| CLI schema path | both | File written by `wsinsight describe --output` (default `~/.wsinsight/cli-schema.json`) |
+| CLI schema path | both | File written by `wsinsight schema --output` (default `~/.wsinsight/cli-schema.json`) |
 | Use local model files | both | On: pass `--zoo-model-dir` from the path in the schema. Off: pass `--model` and download from HuggingFace |
+| Model zoo registry | both | `WSINSIGHT_ZOO_REGISTRY_PATH`. Blank keeps the Docker image's bundled registry, or whatever a native run inherits |
+| Keras home | both | `KERAS_HOME`, where StarDist weights are found. Blank means inherit |
+| Hugging Face cache | both | `HF_HOME`. Blank means inherit |
+| Fast Hugging Face downloads | both | Sets `HF_HUB_ENABLE_HF_TRANSFER=1`, which needs the `hf_transfer` package |
+| Export GeoJSON detections | both | Initial state of the GeoJSON checkbox. GeoJSON is the only format this extension imports |
+| Import results when a run finishes | both | Import the detections as soon as a run exits successfully. Requires GeoJSON export |
+| Overwrite existing results | both | Initial state of `--overwrite`: recompute slides that already have outputs |
 | S3 storage options (JSON) | both | Sets `S3_STORAGE_OPTIONS` |
 | Remote cache directory | both | Host cache for slides streamed from S3/GDC. In Docker mode it must sit under the slides or results directory |
 | Enable experimental features | both | Show the experimental subcommands and flags (see **Menu** below) |
@@ -143,6 +155,13 @@ Each action opens a form pre-populated with the CLI's own defaults. At the top, 
 - **Current image** — run on whichever slide is open in the viewer.
 - **Selected project images…** — pick a subset from a checkbox list, which has
   **All** and **None** buttons.
+
+Every value the form shows is sent verbatim, so the dialog always states what
+the run will do. A field starts from the value you last used in this project,
+falling back to the schema default; the GeoJSON export and overwrite checkboxes
+start from their preferences instead. Clearing a checkbox whose CLI default is
+on sends the negated flag (`--no-pin-memory`), because omitting it would leave
+the default in force.
 
 If no image is open and no project is loaded, the dialog reports "No image
 available" and does not launch.
@@ -223,13 +242,13 @@ regenerate it.
 
 ### Layout is inferred, not declared
 
-`describe` carries no GUI hints, so the dialog derives its sections from the CLI's
+`schema` carries no GUI hints, so the dialog derives its sections from the CLI's
 flag prefixes and splits the main form in half. A few placements are pinned in
 `GenericCommandDialog` — `--model` leads, `--stitch-workers` follows
 `--num-workers`, and the directory pickers trail `--overwrite`. If richer layout
 is ever wanted, `SchemaLoader` already understands per-param `group` and
 `column_break` keys plus a per-command `groups` object; emitting them from
-`describe` would take precedence over the inferred layout.
+`schema` would take precedence over the inferred layout.
 
 ### Two runners, one interface
 
@@ -243,7 +262,7 @@ used only for Docker, and is bypassed entirely in native mode.
 ### Group options are not in the schema
 
 `--backend` and `--log-level` are declared on the CLI's top-level Click group,
-and `describe` only walks `cli.commands`, so neither reaches the schema. They
+and `schema` only walks `cli.commands`, so neither reaches the schema. They
 also have to precede the subcommand — `wsinsight --backend tiffslide run …` — so
 they cannot be ordinary form fields. `GenericCommandDialog.globalArgs` emits them
 ahead of the subcommand from preferences instead; anything else the group grows

@@ -17,8 +17,8 @@ import qupath.ext.wsinsight.runner.ProgressListener;
 import qupath.ext.wsinsight.runner.Runner;
 
 /**
- * Modal JavaFX dialog that launches a {@link DockerRunner} on a background
- * thread and streams container output into a scrolling text area.
+ * Modal JavaFX dialog that launches a {@link Runner} on a background
+ * thread and streams its output into a scrolling text area.
  */
 public class WSInsightProgressDialog {
 

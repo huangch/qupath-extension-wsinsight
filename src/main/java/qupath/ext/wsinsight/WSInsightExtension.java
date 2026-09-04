@@ -5,6 +5,9 @@ import javafx.scene.control.MenuItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import qupath.ext.wsinsight.commands.LastUsedValues;
+import qupath.ext.wsinsight.commands.ProjectLastUsedValues;
+import qupath.ext.wsinsight.commands.SharedResultsDir;
 import qupath.ext.wsinsight.commands.WSInsightCommands;
 import qupath.fx.dialogs.Dialogs;
 import qupath.lib.common.Version;
@@ -73,7 +76,7 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
                         + "'auto' lets wsinsight pick whichever is installed.");
         prefs.addPropertyPreference(s.cliSchemaPathProperty(), String.class,
                 "CLI schema path", "wsinsight",
-                "Path to the schema written by `wsinsight describe --output <path>`. "
+                "Path to the schema written by `wsinsight schema --output <path>`. "
                         + "Regenerate it after changing the CLI or the model zoo, then "
                         + "use Extensions \u2192 wsinsight \u2192 Reload CLI schema.");
         prefs.addPropertyPreference(s.useLocalModelsProperty(), Boolean.class,
@@ -81,6 +84,27 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
                 "On: pass --zoo-model-dir using the path wsinsight reported for the "
                         + "model, so nothing is downloaded. Off: pass --model, which "
                         + "always fetches from HuggingFace and needs outbound HTTPS.");
+        prefs.addPropertyPreference(s.exportGeoJsonProperty(), Boolean.class,
+                "Export GeoJSON detections", "wsinsight",
+                "Initial state of the GeoJSON export checkbox in every wsinsight "
+                        + "dialog. GeoJSON is the only format this extension can import, "
+                        + "so turning it off makes a run produce nothing QuPath displays. "
+                        + "Can still be overridden per run in the dialog.");
+        prefs.addPropertyPreference(s.autoImportProperty(), Boolean.class,
+                "Import results when a run finishes", "wsinsight",
+                "On: import the GeoJSON detections into the project as soon as a run "
+                        + "exits successfully, instead of waiting for Extensions \u2192 "
+                        + "wsinsight \u2192 Import results. Requires 'Export GeoJSON "
+                        + "detections', and is skipped for runs where that checkbox was "
+                        + "cleared. Leave off when chaining several steps and importing "
+                        + "once at the end.");
+        prefs.addPropertyPreference(s.overwriteProperty(), Boolean.class,
+                "Overwrite existing results", "wsinsight",
+                "Initial state of the --overwrite checkbox. On: re-running into a "
+                        + "results directory recomputes slides that already have "
+                        + "outputs, which is what a changed model or parameter needs. "
+                        + "Off: those slides are skipped, so an import may load the "
+                        + "previous run's detections. Can be overridden per run.");
         prefs.addPropertyPreference(s.s3OptionsProperty(), String.class,
                 "S3 storage options (JSON)", "wsinsight",
                 "Value passed as S3_STORAGE_OPTIONS inside the container.");
@@ -89,6 +113,28 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
                 "Host directory used to cache slides streamed from S3/GDC. In Docker "
                         + "mode it must sit under the slides or results directory, "
                         + "otherwise the container cannot see it.");
+        prefs.addPropertyPreference(s.zooRegistryPathProperty(), String.class,
+                "Model zoo registry", "wsinsight",
+                "Path to wsinsight-zoo-registry.json (WSINSIGHT_ZOO_REGISTRY_PATH). "
+                        + "Leave blank to use the Docker image's bundled registry, or "
+                        + "whatever the environment that launched QuPath provides for a "
+                        + "native run. Set it to avoid needing a wrapper script. In "
+                        + "Docker mode the path must sit under the slides or results "
+                        + "directory, otherwise the container cannot see it.");
+        prefs.addPropertyPreference(s.kerasHomeProperty(), String.class,
+                "Keras home", "wsinsight",
+                "KERAS_HOME, where StarDist2D.from_pretrained looks for its weights. "
+                        + "Same blank-means-inherit and Docker visibility rules as the "
+                        + "model zoo registry.");
+        prefs.addPropertyPreference(s.hfHomeProperty(), String.class,
+                "Hugging Face cache", "wsinsight",
+                "HF_HOME, where model weights downloaded from Hugging Face are kept. "
+                        + "Same blank-means-inherit and Docker visibility rules as the "
+                        + "model zoo registry.");
+        prefs.addPropertyPreference(s.hfTransferProperty(), Boolean.class,
+                "Fast Hugging Face downloads", "wsinsight",
+                "Set HF_HUB_ENABLE_HF_TRANSFER=1, which needs the hf_transfer package "
+                        + "installed. Off leaves the variable alone.");
         prefs.addPropertyPreference(s.experimentalProperty(), Boolean.class,
                 "Enable experimental features", "wsinsight",
                 "When enabled, WSINSIGHT_EXPERIMENTAL=1 is set inside the container, "
@@ -181,8 +227,39 @@ public class WSInsightExtension implements QuPathExtension, GitHubProject {
                         + s.models().size() + " model(s).");
             } catch (java.io.IOException e) {
                 Dialogs.showErrorMessage("WSInsight CLI schema", e.getMessage());
+                return;
             }
+            offerToResetRememberedValues(qupath);
         });
+    }
+
+    /**
+     * Remembered values take priority over the schema, so a reload alone can
+     * leave dialogs showing parameters from the previous CLI version. Clearing
+     * them is offered here rather than done automatically: the values are the
+     * user's own input, and a reload is usually about picking up a new model.
+     */
+    private void offerToResetRememberedValues(QuPathGUI qupath) {
+        // Fully-qualified names would resolve against the `qupath` parameter,
+        // not the package, so these are imported at the top of the file.
+        var project = qupath == null ? null : qupath.getProject();
+        boolean scoped = ProjectLastUsedValues.hasProject(project);
+        boolean reset = Dialogs.showYesNoDialog("WSInsight",
+                "Also reset remembered parameters?\n\n"
+                        + "Dialogs currently reopen with the values you last used"
+                        + (scoped ? " in this project" : "")
+                        + ", which override the wsinsight defaults in the schema "
+                        + "you just reloaded.\n\n"
+                        + "Yes \u2014 forget them and start from the new defaults.\n"
+                        + "No \u2014 keep them (the schema is reloaded either way).");
+        if (!reset) return;
+
+        int cleared = ProjectLastUsedValues.clearAll(project) + LastUsedValues.clearAll();
+        SharedResultsDir.clearProject(project);
+        Dialogs.showInfoNotification("WSInsight",
+                cleared == 0
+                        ? "No remembered parameters to reset."
+                        : "Reset remembered parameters for " + cleared + " dialog(s).");
     }
 
     /** Friendly menu label for each subcommand. Falls back to capitalised name. */

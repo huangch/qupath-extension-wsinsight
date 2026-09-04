@@ -13,6 +13,12 @@ public final class ParamSpec {
 
     /** CLI option name, e.g. "--wsi-dir". Use {@code null} for positional args. */
     public final String flag;
+    /**
+     * Secondary "off" form of a boolean flag, e.g. {@code --no-pin-memory},
+     * or {@code null} when the flag has none. Required to express "off" for a
+     * flag whose CLI default is on, where omitting the flag means "on".
+     */
+    public final String offFlag;
     public final String label;
     public final String help;
     public final Kind kind;
@@ -31,6 +37,7 @@ public final class ParamSpec {
 
     private ParamSpec(Builder b) {
         this.flag = b.flag;
+        this.offFlag = b.offFlag;
         this.label = Objects.requireNonNull(b.label);
         this.help = b.help == null ? "" : b.help;
         this.kind = Objects.requireNonNull(b.kind);
@@ -102,6 +109,7 @@ public final class ParamSpec {
 
     public static final class Builder {
         private String flag;
+        private String offFlag;
         private String label;
         private String help;
         private Kind kind;
@@ -114,6 +122,7 @@ public final class ParamSpec {
         private int nargs = 1;
 
         public Builder flag(String v) { this.flag = v; return this; }
+        public Builder offFlag(String v) { this.offFlag = v; return this; }
         public Builder label(String v) { this.label = v; return this; }
         public Builder help(String v) { this.help = v; return this; }
         public Builder kind(Kind v) { this.kind = v; return this; }

@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Factory for {@link GenericCommandDialog} instances, driven by the CLI schema
- * that {@code wsinsight describe --output <path>} writes. Reading it from disk
+ * that {@code wsinsight schema --output <path>} writes. Reading it from disk
  * keeps menu creation instantaneous (no Docker call at startup) and leaves the
  * CLI as the single generator of that file.
  */

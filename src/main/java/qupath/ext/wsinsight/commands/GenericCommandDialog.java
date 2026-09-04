@@ -209,6 +209,14 @@ public class GenericCommandDialog {
             java.util.Set.of("--zoo-model-dir", "--config", "--model-path",
                     "--hoptimus-model-dir", "--niche-hoptimus-model-dir");
 
+    /**
+     * Flags requesting GeoJSON detections. GeoJSON is the only format this
+     * extension imports, so these checkboxes start from the "Export GeoJSON
+     * detections" preference rather than from the CLI's own default.
+     */
+    static final java.util.Set<String> GEOJSON_EXPORT_FLAGS =
+            java.util.Set.of("--export-geojson", "--geojson");
+
     /** Experimental {@code run}-dialog flags hidden when the pref is off. */
     private static final java.util.Set<String> EXPERIMENTAL_FLAGS =
             java.util.Set.of("--hplot", "--niche", "--ecomp", "--tcomp",
@@ -492,7 +500,7 @@ public class GenericCommandDialog {
             }
         }
 
-        // `describe` carries no GUI hints, so fall back to the CLI's own flag
+        // `schema` carries no GUI hints, so fall back to the CLI's own flag
         // prefixes (--niche-*, --hplot-*, ...) to keep the main form short.
         LinkedHashMap<String, List<ParamSpec>> autoSections = new LinkedHashMap<>();
         Map<String, ParamSpec> sectionSwitches = new LinkedHashMap<>();
@@ -859,22 +867,28 @@ public class GenericCommandDialog {
             }
         }
 
+        // Analysis commands read their slide list from patches/, so an unresolved
+        // slide scope must not block them.
+        boolean needsSlides = autoFlagsForCommand.contains("--wsi-dir");
+
         java.io.File slidesMountRoot = scope.slidesMountRoot();
-        if (slidesMountRoot == null || !slidesMountRoot.isDirectory()) {
+        if (needsSlides && (slidesMountRoot == null || !slidesMountRoot.isDirectory())) {
             Dialogs.showErrorMessage("wsinsight",
                     "Slides mount root is not a directory: " + slidesMountRoot);
             return;
         }
 
         // Materialise the image-list manifest up-front if we're batching.
-        String wsiDirOverride;
-        try {
-            wsiDirOverride = scope.writeImageListIfNeeded(
-                    resultsDir, !WSInsightSetup.getInstance().isUseNative());
-        } catch (java.io.IOException e) {
-            Dialogs.showErrorMessage("wsinsight",
-                    "Failed to write slide list: " + e.getMessage());
-            return;
+        String wsiDirOverride = null;
+        if (needsSlides) {
+            try {
+                wsiDirOverride = scope.writeImageListIfNeeded(
+                        resultsDir, !WSInsightSetup.getInstance().isUseNative());
+            } catch (java.io.IOException e) {
+                Dialogs.showErrorMessage("wsinsight",
+                        "Failed to write slide list: " + e.getMessage());
+                return;
+            }
         }
 
         // --- Build argv ---------------------------------------------------
@@ -891,8 +905,10 @@ public class GenericCommandDialog {
             nb = qupath.ext.wsinsight.runner.NativeRunner.builder().fromSetup(setup);
         } else {
             rb = DockerRunner.builder().fromSetup(setup);
-            rb.mount(new qupath.ext.wsinsight.runner.PathMapper.Mount(
-                    slidesMountRoot.toPath(), "/slides"));
+            if (slidesMountRoot != null && slidesMountRoot.isDirectory()) {
+                rb.mount(new qupath.ext.wsinsight.runner.PathMapper.Mount(
+                        slidesMountRoot.toPath(), "/slides"));
+            }
             rb.mount(new qupath.ext.wsinsight.runner.PathMapper.Mount(
                     resultsDir.toPath(), "/results"));
             pm = new qupath.ext.wsinsight.runner.PathMapper(rb.getMounts());
@@ -920,7 +936,10 @@ public class GenericCommandDialog {
 
             switch (spec.kind) {
                 case BOOL_FLAG:
+                    // Omitting a flag that defaults to on would leave it on, so
+                    // an unticked box has to say so explicitly when it can.
                     if ("true".equalsIgnoreCase(val)) addArg.accept(spec.flag);
+                    else if (spec.offFlag != null) addArg.accept(spec.offFlag);
                     break;
                 case PATH:
                     String resolved = val;
@@ -960,7 +979,7 @@ public class GenericCommandDialog {
                                     "'Use local model files' is on, but wsinsight reported no local "
                                     + "folder for '" + m.name + "'.\n\n"
                                     + "Regenerate the schema where the weights are visible:\n"
-                                    + "    wsinsight describe --output <schema path>\n\n"
+                                    + "    wsinsight schema --output <schema path>\n\n"
                                     + "or turn the preference off to download from HuggingFace.");
                         }
                         break;
@@ -1028,10 +1047,27 @@ public class GenericCommandDialog {
         }
 
         WSInsightProgressDialog progress = new WSInsightProgressDialog("wsinsight — " + subcommand, runner);
-        // Imports are no longer triggered here. The user invokes them explicitly
-        // through Extensions > wsinsight > Import results..., which lets them run
-        // several wsinsight steps and import once at the end of a chain.
+        // Importing here is opt-in: chaining several wsinsight steps and
+        // importing once at the end (Extensions > wsinsight > Import results)
+        // stays the default, because an import after every step would load the
+        // same detections repeatedly.
+        if (WSInsightSetup.getInstance().isAutoImport() && geoJsonRequested(result)) {
+            final java.io.File importDir = resultsDir;
+            final RunScope importScope = scope;
+            progress.setOnFinished(() -> {
+                if (Integer.valueOf(0).equals(progress.getExitCode()))
+                    AutoImport.importResults(importDir, importScope, project);
+            });
+        }
         progress.showAndRun();
+    }
+
+    /** True when this run was configured to write the GeoJSON that AutoImport reads. */
+    private static boolean geoJsonRequested(Map<String, String> result) {
+        for (String flag : GEOJSON_EXPORT_FLAGS) {
+            if ("true".equalsIgnoreCase(result.get(flag))) return true;
+        }
+        return false;
     }
 
     /**
@@ -1341,11 +1377,24 @@ public class GenericCommandDialog {
         return box;
     }
 
+    /**
+     * Initial state of a checkbox, before any project last-used value is
+     * applied over it. GeoJSON export and overwrite come from Preferences
+     * rather than the CLI default because both are properties of how this
+     * viewer is used, not of the command being run.
+     */
+    private static boolean initialBoolFor(ParamSpec spec) {
+        WSInsightSetup setup = WSInsightSetup.getInstance();
+        if (GEOJSON_EXPORT_FLAGS.contains(spec.flag)) return setup.isExportGeoJson();
+        if ("--overwrite".equals(spec.flag)) return setup.isOverwrite();
+        return "true".equalsIgnoreCase(spec.defaultValue);
+    }
+
     private Node buildInput(ParamSpec spec) {
         switch (spec.kind) {
             case BOOL_FLAG: {
                 CheckBox cb = new CheckBox();
-                cb.setSelected("true".equalsIgnoreCase(spec.defaultValue));
+                cb.setSelected(initialBoolFor(spec));
                 return cb;
             }
             case CHOICE: {

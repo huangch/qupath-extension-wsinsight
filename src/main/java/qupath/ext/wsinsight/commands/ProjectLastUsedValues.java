@@ -57,6 +57,30 @@ public final class ProjectLastUsedValues {
         }
     }
 
+    /**
+     * Forget every remembered value for this project, across all subcommands,
+     * so the next dialog starts from the wsinsight defaults again.
+     *
+     * @return number of subcommands whose stored values were removed
+     */
+    public static int clearAll(Project<?> project) {
+        if (!hasProject(project)) return 0;
+        String key = projectKey(project);
+        if (key == null) return 0;
+        try {
+            Preferences root = PathPrefs.getUserPreferences().node(ROOT_NODE);
+            if (!root.nodeExists(key)) return 0;
+            Preferences node = root.node(key);
+            int n = node.childrenNames().length;
+            node.removeNode();
+            root.flush();
+            return n;
+        } catch (BackingStoreException e) {
+            logger.debug("Could not clear project last-used values: {}", e.toString());
+            return 0;
+        }
+    }
+
     /** Load last-used values for this project's {@code subcommand}. */
     public static Map<String, String> load(Project<?> project, String subcommand) {
         Map<String, String> out = new LinkedHashMap<>();
